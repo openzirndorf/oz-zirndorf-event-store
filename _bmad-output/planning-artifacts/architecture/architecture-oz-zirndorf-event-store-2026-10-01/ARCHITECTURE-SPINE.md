@@ -7,7 +7,7 @@ paradigm: 'Hexagonal light (Ports & Adapters)'
 scope: 'Gesamtes Backend v1: öffentliche Lese-API, Admin-Oberfläche, JSON-Import, Archiv/Bereinigung, Betrieb auf Railway'
 status: final
 created: '2026-10-01'
-updated: '2026-10-07'
+updated: '2026-11-11'
 binds: [FR-1, FR-2, FR-3, FR-4, FR-5, FR-6, FR-7, FR-8, FR-9, FR-10, FR-11, FR-12, FR-13, FR-14, FR-15, FR-16, FR-17, FR-18, NFR-1, NFR-2, NFR-3, NFR-4, NFR-5, NFR-6, KON-1, KON-2, KON-3, KON-4, KON-5, KON-6, KON-7, KON-8]
 sources:
   - _bmad-output/planning-artifacts/prds/prd-oz-zirndorf-event-store-2026-10-01/prd.md
@@ -82,7 +82,7 @@ flowchart LR
 
 - **Binds:** FR-1 bis FR-7, FR-14 bis FR-18, NFR-4
 - **Prevents:** Admin-Formular und Import validieren unterschiedlich; ein Adapter schreibt am Kern vorbei in die Datenbank.
-- **Rule:** Events und Orte werden ausschließlich über Anwendungsfälle des Kerns geschrieben: `SaveEvent`, `DeleteEvent`, `SaveLocation`, `DeleteLocation`, `CommitImport`, `RemoveImportKey`, `RecomputeDerived` (Start, AD-16) und `MarkArchived` (Bereinigungsjob, AD-13). Jeder Schreib-Anwendungsfall besteht aus einem transaktionsgebundenen Kern, der die Repositories einer laufenden Transaktion erhält, und einer Hülle, die ihn über `TxRunner` in einer eigenen Transaktion ausführt. `CommitImport` ruft nur die Kerne auf, alles in **einer** Transaktion. `TxRunner` nimmt zu Beginn jeder Transaktion eine transaktionsgebundene Sperre (`pg_advisory_xact_lock` mit einer festen Kennung), sodass Schreib-Transaktionen nacheinander laufen: Duplikat- und Namensprüfung sehen immer den Stand der vorigen Transaktion. Bei einem Admin kostet das nichts; es ist keine Fachlogik in SQL (AD-2), sondern Nebenläufigkeitsschutz. `SaveEvent` aus dem Admin ändert `importKey` nie. Nur `CommitImport` setzt ihn, und nur `RemoveImportKey` entfernt ihn auf ausdrücklichen Wunsch im Admin. Admin-Formular und Import nutzen **denselben** Eingabetyp `core.EventInput` und dieselben Anwendungsfälle. Repository-Ports bieten Adaptern keine Schreibmethode an, die den Kern umgeht. Der Löschschutz für Orte (FR-7) liegt im Kern und wird zusätzlich durch einen Fremdschlüssel `ON DELETE RESTRICT` abgesichert. Das Datenmodell hat keine Felder für Personen (NFR-4).
+- **Rule:** Events und Orte werden ausschließlich über Anwendungsfälle des Kerns geschrieben: `SaveEvent`, `DeleteEvent`, `SaveLocation`, `DeleteLocation`, `CommitImport`, `RemoveImportKey`, `RecomputeDerived` (Start, AD-16) und `MarkArchived` (Bereinigungsjob, AD-13). Jeder Schreib-Anwendungsfall besteht aus einem transaktionsgebundenen Kern, der die Repositories einer laufenden Transaktion erhält, und einer Hülle, die ihn über `TxRunner` in einer eigenen Transaktion ausführt. `CommitImport` ruft nur die Kerne auf, alles in **einer** Transaktion. `TxRunner` nimmt zu Beginn jeder Transaktion eine transaktionsgebundene Sperre (`pg_advisory_xact_lock` mit einer festen Kennung), sodass Schreib-Transaktionen nacheinander laufen: Duplikat- und Namensprüfung sehen immer den Stand der vorigen Transaktion. Bei einem Admin kostet das nichts; es ist keine Fachlogik in SQL (AD-2), sondern Nebenläufigkeitsschutz. `SaveEvent` aus dem Admin ändert `importKey` nie. Nur `CommitImport` setzt ihn, und nur `RemoveImportKey` entfernt ihn auf ausdrücklichen Wunsch im Admin. Admin-Formular und Import nutzen **denselben** Eingabetyp `core.EventInput` und dieselben Anwendungsfälle. Repository-Ports bieten Adaptern keine Schreibmethode an, die den Kern umgeht. Der Löschschutz für Orte (FR-7) liegt im Kern. Er zählt Verweise von Events und von Programmpunkten und wird zusätzlich durch je einen Fremdschlüssel `ON DELETE RESTRICT` abgesichert (`events.location_id`, `timetable_entries.location_id`). Das Datenmodell hat keine Felder für Personen (NFR-4).
 
 ### AD-7 — Lesen über Kern-Abfragen [ADOPTED]
 
@@ -107,7 +107,7 @@ flowchart LR
 - **Binds:** FR-16, FR-17, FR-18
 - **Prevents:** Ein halb übernommener Import; Entscheidungen, die auf einem veralteten Stand beruhen; ein Fehler in einem Eintrag, der den ganzen Import zurückrollt; verwaister Entwurfszustand auf dem Server.
 - **Rule:** Ablauf:
-  1. **Upload:** Höchstens 2 MB je Datei, eine Datei ohne Einträge wird mit einer Meldung abgelehnt. Der Kern parst, validiert und klassifiziert jeden Eintrag gegen den **gesamten** Bestand, archivierte Events eingeschlossen. Klassen: `new`, `update` (die Vorschau zeigt die geänderten Felder), `unchanged` (`importKey` vorhanden, keine Abweichung, es wird nichts geschrieben), `duplicateSuspect`, `error`, außerdem pro Ort `newLocation`. Ein Eintrag, dessen Ziel-Event einen anderen `importKey` hat, ist schon hier `error`. Ob `unchanged` vorliegt, entscheidet der Vergleich der kanonischen Formen (`Canonicalize`, AD-14). Vorrang: `error` vor `update`/`unchanged` vor `duplicateSuspect`.
+  1. **Upload:** Höchstens 2 MB je Datei, eine Datei ohne Einträge wird mit einer Meldung abgelehnt. Der Kern parst, validiert und klassifiziert jeden Eintrag gegen den **gesamten** Bestand, archivierte Events eingeschlossen. Klassen: `new`, `update` (die Vorschau zeigt die geänderten Felder), `unchanged` (`importKey` vorhanden, keine Abweichung, es wird nichts geschrieben), `duplicateSuspect`, `error`, außerdem pro Ort `newLocation`. Ein Eintrag, dessen Ziel-Event einen anderen `importKey` hat, ist schon hier `error`. Ob `unchanged` vorliegt, entscheidet der Vergleich der kanonischen Formen (`Canonicalize`, AD-14). Vorrang: `error` vor `update`/`unchanged` vor `duplicateSuspect`. Mitgebrachte Orte von Programmpunkten werden genauso aufgelöst wie der Ort des Events: über `name_key` dem vorhandenen Ort zugeordnet oder als `newLocation` angezeigt, einmal pro Name und Datei. Ein Unterschied im Ort eines Programmpunkts zählt beim `unchanged`-Vergleich und in der Änderungsanzeige von `update` als Änderung des Feldes `timetable`.
   2. **Konflikte innerhalb der Datei:** Ein doppelter `importKey` macht beide Einträge zu `error`, ebenso zwei Einträge mit demselben Ziel-Event. Gleiche Einträge (AD-11) werden untereinander zu `duplicateSuspect`. Derselbe neue Ort wird nur einmal angelegt.
   3. **Viewer:** Der Admin arbeitet alle Einträge durch. Der Zwischenstand liegt nur im Browser-Formular, der Server speichert keinen Entwurf.
   4. **Speichern:** Der vollständige Satz wird samt Entscheidungen gesendet. Jede Entscheidung trägt die beim Upload ermittelte Klasse, gegebenenfalls die Ziel-ID und den Fingerabdruck jedes Bestands-Events, das sie schreiben könnte. Den Fingerabdruck leitet der Kern aus der kanonischen Form des gespeicherten Events samt Ort und `importKey` ab. Der Kern klassifiziert erneut. Weicht die Klasse oder die Ziel-ID ab, oder hat sich das Event, das geschrieben würde, seit dem Upload geändert, wird der Eintrag **nicht** übernommen und als `stale` gemeldet.
@@ -144,13 +144,13 @@ flowchart LR
 
 - **Binds:** FR-1, FR-2, FR-10, FR-16, KON-4, KON-7
 - **Prevents:** Zeitfelder, die in API, Import und Admin unterschiedlich heißen oder aussehen.
-- **Rule:** Die Schreibform `EventInput` (Import) enthält `title`, `type`, `location` (mitgebrachter Ort: `name` Pflicht; `address`, `latitude`, `longitude`, `precision`, `note` optional, weil ein vorhandener Name sie nicht braucht), `startDate`, `startTime`, `endDate`, `endTime`, `allDay`, `source`, `note`, `timetable` und `importKey`. Die Leseform `Event` ist ein eigenes Schema mit denselben Feldnamen wie `EventInput` (ohne `importKey`), wobei `location` vollständig ist, **plus** abgeleitete Felder: `startPrecision`, `endPrecision`, `effectiveStart` und `effectiveEnd`. Einen Archivstatus enthält sie nicht (AD-5). **Keine Form nach außen enthält interne Werte:** keine Kennungen (Event, Ort, Programmpunkt), kein `importKey` in der Leseform, kein `archivedAt`, `title_key` oder `name_key`. Im Kern trägt `core.EventInput` entweder die interne Ortskennung (Admin-Formular) oder den mitgebrachten Ort (Import); die Spec kennt nur `location`. `source` ist in beiden Formen ein Objekt `{ "description": string, "url": string | null }`, `description` ist Pflicht, `url` muss eine http(s)-URL sein. Formate: `startDate`/`endDate` als `YYYY-MM-DD`, `startTime`/`endTime` als `HH:MM` lokale Zeit Europe/Berlin oder `null`, `effective*` als ISO 8601 mit dem lokalen Offset von Europe/Berlin (`+01:00` / `+02:00`). Die Kernfunktion `Canonicalize` bringt ein `EventInput` in eine kanonische Form (getrimmt, `""` als `null`, Ablaufplan sortiert). `SaveEvent` speichert nur kanonische Formen, und der Import-Vergleich nutzt sie.
+- **Rule:** Die Schreibform `EventInput` (Import) enthält `title`, `type`, `location` (mitgebrachter Ort: `name` Pflicht; `address`, `latitude`, `longitude`, `precision`, `note` optional, weil ein vorhandener Name sie nicht braucht), `startDate`, `startTime`, `endDate`, `endTime`, `allDay`, `source`, `note`, `timetable` und `importKey`. Die Leseform `Event` ist ein eigenes Schema mit denselben Feldnamen wie `EventInput` (ohne `importKey`), wobei `location` vollständig ist, **plus** abgeleitete Felder: `startPrecision`, `endPrecision`, `effectiveStart` und `effectiveEnd`. Einen Archivstatus enthält sie nicht (AD-5). Ein Eintrag in `timetable` hat in beiden Formen `description`, `date`, `startTime`, `endTime` und `location`. In der Schreibform ist `location` ein mitgebrachter Ort wie beim Event (`name` Pflicht) oder fehlt bzw. ist `null`. In der Leseform ist `location` der vollständige Ort oder `null`, wenn der Ort des Events gilt. Die Spec führt dafür zwei Schemas, `TimetableEntry` (Lesen) und `TimetableEntryInput` (Schreiben). Im Kern trägt der Eintrag wie `core.EventInput` entweder die interne Ortskennung (Admin) oder den mitgebrachten Ort (Import). **Keine Form nach außen enthält interne Werte:** keine Kennungen (Event, Ort, Programmpunkt), kein `importKey` in der Leseform, kein `archivedAt`, `title_key` oder `name_key`. Im Kern trägt `core.EventInput` entweder die interne Ortskennung (Admin-Formular) oder den mitgebrachten Ort (Import); die Spec kennt nur `location`. `source` ist in beiden Formen ein Objekt `{ "description": string, "url": string | null }`, `description` ist Pflicht, `url` muss eine http(s)-URL sein. Formate: `startDate`/`endDate` als `YYYY-MM-DD`, `startTime`/`endTime` als `HH:MM` lokale Zeit Europe/Berlin oder `null`, `effective*` als ISO 8601 mit dem lokalen Offset von Europe/Berlin (`+01:00` / `+02:00`). Die Kernfunktion `Canonicalize` bringt ein `EventInput` in eine kanonische Form (getrimmt, `""` als `null`, Ablaufplan sortiert). `SaveEvent` speichert nur kanonische Formen, und der Import-Vergleich nutzt sie.
 
 ### AD-15 — Ablaufplan als Wertobjekt des Events [ADOPTED]
 
-- **Binds:** FR-4, FR-15, FR-16
+- **Binds:** FR-4, FR-7, FR-15, FR-16
 - **Prevents:** Admin und Import bauen den Ablaufplan unterschiedlich (Teilupdates gegen Ersetzen, Zeitpunkte gegen Uhrzeiten).
-- **Rule:** Der Ablaufplan gehört dem Event und wird nur über `SaveEvent` geschrieben, immer als ganze Liste, die die vorherige ersetzt. Jeder Eintrag hat `description`, `date`, `startTime` (optional), `endTime` (optional), nach dem Zeitmodell aus AD-3. Liegt `endTime` vor `startTime`, endet der Eintrag am Folgetag. Einträge müssen innerhalb von `[effectiveStart, effectiveEnd]` liegen, ein Eintrag darf also genau mit dem Event enden. Der Ablaufplan ändert `effective*` nicht. Programmpunkte haben nur interne Kennungen. Weil jedes Speichern die ganze Liste ersetzt, sind diese Kennungen nicht stabil, und nichts außerhalb des Kerns darf sie speichern oder sich auf sie beziehen (AD-11, AD-14).
+- **Rule:** Der Ablaufplan gehört dem Event und wird nur über `SaveEvent` geschrieben, immer als ganze Liste, die die vorherige ersetzt. Jeder Eintrag hat `description`, `date`, `startTime` (optional), `endTime` (optional), nach dem Zeitmodell aus AD-3. Optional verweist ein Eintrag auf einen eigenen Ort (`locationId`, intern). Ohne Verweis findet er am Ort des Events statt. Ein Verweis auf den Ort des Events wird von `Canonicalize` entfernt, damit „Ort des Events“ genau eine Darstellung hat. Der Verweis ist eine Ort-Referenz wie beim Event (FR-7). Der Ablaufplan prüft keine räumliche Nähe zum Event. Liegt `endTime` vor `startTime`, endet der Eintrag am Folgetag. Einträge müssen innerhalb von `[effectiveStart, effectiveEnd]` liegen, ein Eintrag darf also genau mit dem Event enden. Der Ablaufplan ändert `effective*` nicht. Programmpunkte haben nur interne Kennungen. Weil jedes Speichern die ganze Liste ersetzt, sind diese Kennungen nicht stabil, und nichts außerhalb des Kerns darf sie speichern oder sich auf sie beziehen (AD-11, AD-14).
 
 ### AD-16 — Zeitumrechnung an genau einer Stelle [ADOPTED]
 
@@ -221,6 +221,7 @@ flowchart LR
 erDiagram
   LOCATIONS ||--o{ EVENTS : "hat (ON DELETE RESTRICT)"
   EVENTS ||--o{ TIMETABLE_ENTRIES : "hat"
+  LOCATIONS ||--o{ TIMETABLE_ENTRIES : "optional (ON DELETE RESTRICT)"
   LOCATIONS {
     uuid id
     text name
@@ -238,6 +239,7 @@ erDiagram
   TIMETABLE_ENTRIES {
     uuid id
     uuid event_id
+    uuid location_id "NULL = Ort des Events"
   }
 ```
 
@@ -285,7 +287,7 @@ compose.yaml              # lokales PostgreSQL 18
 
 | Capability / Area | Lives in | Governed by |
 | --- | --- | --- |
-| FR-1–FR-5 Event-Daten, Zeitgenauigkeit, Quelle, Ablaufplan, Typen | `core` | AD-2, AD-3, AD-6, AD-14, AD-15, AD-9 |
+| FR-1–FR-5 Event-Daten, Zeitgenauigkeit, Quelle, Ablaufplan, Typen | `core` | AD-2, AD-3, AD-6, AD-14, AD-15, AD-9, AD-11 |
 | FR-6, FR-7 Orte, Löschschutz | `core` + `adapter/postgres` | AD-6, AD-11 |
 | FR-8–FR-11 Lese-API | `adapter/publicapi/v1` → `core` | AD-4, AD-7, AD-8, AD-12, AD-14, AD-16 |
 | FR-12, FR-13 Archiv, Bereinigung | `core` + `adapter/cleanup` | AD-4, AD-5, AD-13 |
