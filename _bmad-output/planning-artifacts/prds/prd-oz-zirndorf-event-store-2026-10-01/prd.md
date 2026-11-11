@@ -2,7 +2,7 @@
 title: "PRD: OZ Zirndorf Event Store"
 status: final
 created: 2026-10-01
-updated: 2026-10-06
+updated: 2026-11-11
 ---
 
 # PRD: OZ Zirndorf Event Store
@@ -48,7 +48,7 @@ Nebenbei soll das Projekt zeigen, wie ein OZ-Backend seine Schnittstelle gestalt
 - **Zeitgenauigkeit** — Angabe, wie genau ein Zeitpunkt bekannt ist (z. B. „exakt“, „nur Datum“, „ganztägig“). Beginn und Ende eines Events haben je eine eigene Zeitgenauigkeit.
 - **Ortsgenauigkeit** — Angabe, wie genau die Koordinaten eines Orts den tatsächlichen Veranstaltungsplatz treffen (z. B. „Gebäude“, „Platz/Straße“, „Bereich“, „nur Ortsteil“).
 - **Quelle** — Herkunft der Angaben zu einem Event: Beschreibung und optional ein Link.
-- **Ablaufplan** — Geordnete Liste von Programmpunkten eines Events, jeder mit Beschreibung, Beginn und optional Ende.
+- **Ablaufplan** — Geordnete Liste von Programmpunkten eines Events, jeder mit Beschreibung, Beginn, optional Ende und optional einem eigenen Ort. Ohne eigenen Ort findet ein Programmpunkt am Ort des Events statt.
 - **Aktives Event** — Ein Event, das noch nicht vorbei ist. Ein Event ist **vorbei**, wenn sein Ende überschritten ist. Ist beim Ende nur das Datum bekannt, gilt das Ende des End-Tages. Ohne Ende gilt das Ende des Beginn-Tages.
 - **Archiv** — Alle Events, die vorbei sind. Ob ein Event zum Archiv gehört, ergibt sich allein aus der Vorbei-Regel, nicht aus dem Zeitpunkt der täglichen Bereinigung. Archivierte Events erscheinen nicht in den regulären Abfragen, nur im Archiv-Zugriff.
 - **Import-Datei** — JSON-Datei im versionierten Import-Format, mit der Andreas Events und Orte gesammelt einspielt.
@@ -91,10 +91,13 @@ Jedes Event nennt seine Quelle als Beschreibung, optional mit Link. Realisiert U
 
 #### FR-4: Ablaufplan
 
-Ein Event kann einen Ablaufplan mit beliebig vielen Programmpunkten haben, jeder mit Beschreibung, Beginn und optionalem Ende.
+Ein Event kann einen Ablaufplan mit beliebig vielen Programmpunkten haben, jeder mit Beschreibung, Beginn, optionalem Ende und optionalem eigenem Ort.
 
 **Konsequenzen (testbar):**
 - Programmpunkte werden chronologisch nach Beginn sortiert ausgeliefert.
+- Ein Programmpunkt ohne eigenen Ort findet am Ort des Events statt. Ändert sich der Ort des Events, gilt der neue Ort auch für diese Programmpunkte.
+- Ein eigener Ort ist ein Verweis auf einen gepflegten Ort (FR-6, FR-7), keine eigene Adresse.
+- Wird als eigener Ort der Ort des Events gewählt, gilt das wie „kein eigener Ort“.
 
 #### FR-5: Feste Liste der Event-Typen
 
@@ -126,7 +129,7 @@ Events verweisen auf einen Ort, statt Adresse und Koordinaten selbst zu tragen.
 
 **Konsequenzen (testbar):**
 - Ändert der Admin die Koordinaten eines Orts, liefern danach alle Events dieses Orts die neuen Koordinaten.
-- Ein Ort, auf den noch Events (auch archivierte) verweisen, kann nicht gelöscht werden.
+- Ein Ort, auf den noch Events (auch archivierte) oder Programmpunkte verweisen, kann nicht gelöscht werden.
 
 ### 4.3 Öffentliche Lese-API
 
@@ -158,6 +161,7 @@ Jedes ausgelieferte Event enthält alle Angaben aus FR-1 und den vollständigen 
 **Konsequenzen (testbar):**
 - Zwei Events am selben Ort liefern denselben Ortsnamen und identische Koordinaten. Der Ortsname ist eindeutig und kennzeichnet den Ort.
 - Zeitgenauigkeit, Ortsgenauigkeit und Quelle sind bei jedem Event in der Antwort enthalten.
+- Jeder Programmpunkt enthält seinen eigenen Ort vollständig (wie den Ort des Events) oder `null`, wenn der Ort des Events gilt.
 - Die Antwort enthält keine internen Werte: keine Kennungen von Events, Orten oder Programmpunkten, keinen Import-Schlüssel und keine Hilfswerte wie Archivierungszeitpunkt oder Vergleichsschlüssel.
 
 #### FR-11: Nur Listen, Liste der Event-Typen
@@ -213,6 +217,7 @@ Der Admin kann Events und Orte anlegen, bearbeiten und löschen, auch archiviert
 **Konsequenzen (testbar):**
 - Beim Anlegen und Bearbeiten gelten dieselben Pflicht- und Plausibilitätsregeln wie in FR-1 bis FR-7.
 - Beim Anlegen eines Events wählt der Admin einen vorhandenen Ort aus oder legt direkt einen neuen an.
+- Für jeden Programmpunkt kann der Admin einen vorhandenen Ort wählen. Voreingestellt ist „Ort des Events“.
 - Beim Anlegen und Bearbeiten eines Orts kann der Admin die Koordinaten auf einer Karte setzen oder verschieben, statt sie von Hand einzutippen.
 - Wird ein archiviertes Event so bearbeitet, dass es wieder aktiv ist (z. B. falsches Datum korrigiert), erscheint es wieder in den regulären Abfragen.
 
@@ -227,7 +232,7 @@ Die Import-Datei hat eine Formatversion und ist dokumentiert.
 **Konsequenzen (testbar):**
 - Eine Datei mit unbekannter oder fehlender Formatversion wird mit einer klaren Meldung abgelehnt.
 - Das Format kann alle Angaben aus FR-1 bis FR-6 abbilden, einschließlich des optionalen Import-Schlüssels pro Event.
-- Jedes Event in der Import-Datei bringt seinen Ort mit, mindestens mit Namen. Ein mitgebrachter Ort mit demselben Namen wie ein vorhandener wird dem vorhandenen zugeordnet. Die Import-Datei enthält keine internen Kennungen.
+- Jedes Event in der Import-Datei bringt seinen Ort mit, mindestens mit Namen. Ein mitgebrachter Ort mit demselben Namen wie ein vorhandener wird dem vorhandenen zugeordnet. Die Import-Datei enthält keine internen Kennungen. Ein Programmpunkt kann ebenso einen eigenen Ort mitbringen; dafür gelten dieselben Regeln.
 - Ein mitgebrachter Ort, dessen Name noch nicht existiert, wird als neuer Ort angelegt. Dafür muss er Adresse und Koordinaten enthalten, sonst ist der Eintrag fehlerhaft. Die Import-Vorschau (FR-17) zeigt neu anzulegende Orte gesondert an.
 - Ein Import-Schlüssel identifiziert genau ein Event, keine wiederkehrende Reihe. Ein erneuter Import mit demselben Schlüssel aktualisiert dieses Event, auch wenn es im Archiv liegt; für jeden Termin einer Reihe braucht die Quelle einen eigenen Schlüssel.
 - Der Admin sieht den Import-Schlüssel eines Events und kann ihn entfernen. Danach wird das Event bei einem Import wie jedes Event ohne Schlüssel behandelt.

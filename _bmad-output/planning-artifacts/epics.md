@@ -12,7 +12,7 @@ inputDocuments:
 
 Dieses Dokument zerlegt die Anforderungen aus PRD und Architecture Spine des OZ Zirndorf Event Store in umsetzbare Epics und Stories.
 
-Das Requirements Inventory fasst PRD und Spine zusammen, damit jede Story ohne Umweg lesbar ist. Bei einer Abweichung gelten PRD und Spine. Die Festlegungen ENT-1 bis ENT-23 sind seit dem Spine-Update vom 2026-10-02 im Spine enthalten, ENT-24 seit dem 2026-10-05, ENT-25 seit dem 2026-10-07. Jede nennt die AD, in der sie steht.
+Das Requirements Inventory fasst PRD und Spine zusammen, damit jede Story ohne Umweg lesbar ist. Bei einer Abweichung gelten PRD und Spine. Die Festlegungen ENT-1 bis ENT-23 sind seit dem Spine-Update vom 2026-10-02 im Spine enthalten, ENT-24 seit dem 2026-10-05, ENT-25 seit dem 2026-10-07, ENT-26 seit dem 2026-11-11. Jede nennt die AD, in der sie steht.
 
 Abnehmer sind Apps, die die öffentliche API lesen, zuerst die Karten-App.
 
@@ -30,7 +30,7 @@ FR-2: Zeitgenauigkeit getrennt für Beginn und Ende: Uhrzeit exakt, nur Datum od
 
 FR-3: Jedes Event nennt seine Quelle als Beschreibung, optional mit Link. Ohne Quelle wird es abgelehnt („eigene Kenntnis“ genügt). Die Quelle steht nicht im Titel.
 
-FR-4: Ein Event kann einen Ablaufplan mit beliebig vielen Programmpunkten haben, jeder mit Beschreibung, Beginn und optionalem Ende. Die Programmpunkte werden chronologisch nach Beginn sortiert ausgeliefert.
+FR-4: Ein Event kann einen Ablaufplan mit beliebig vielen Programmpunkten haben, jeder mit Beschreibung, Beginn, optionalem Ende und optionalem eigenem Ort. Ohne eigenen Ort gilt der Ort des Events. Die Programmpunkte werden chronologisch nach Beginn sortiert ausgeliefert.
 
 FR-5: Jedes Event hat genau einen Event-Typ aus der festen Liste Fest/Kirchweih, Markt, Kultur/Bühne, Politik/Sitzung, Verein/Treff, Sport und Sonstiges (Codes `festival`, `market`, `culture`, `politics`, `club`, `sports`, `other`). Ein unbekannter Typ wird abgelehnt. Abnehmer können die Liste abfragen. Eine Änderung der Liste ist eine Vertragsänderung (NFR-2).
 
@@ -38,7 +38,7 @@ FR-5: Jedes Event hat genau einen Event-Typ aus der festen Liste Fest/Kirchweih,
 
 FR-6: Ein Ort besteht aus Name, Adresse, Koordinaten, Ortsgenauigkeit und optionaler Notiz. Name, Adresse, Koordinaten und Ortsgenauigkeit sind Pflicht. Die Adresse besteht aus Straße (mit Hausnummer, falls vorhanden), Postleitzahl (fünf Ziffern) und Ort. Alle drei sind Pflicht, auch bei einem nur ortsteilgenauen Ort und bei einem Bereich. Die Ortsgenauigkeit hat die Werte Gebäude, Platz/Straße, Bereich und nur Ortsteil (`building`, `street`, `area`, `district`). Jeder Ort hat eine stabile Kennung, die beim Bearbeiten von Name oder Adresse gleich bleibt.
 
-FR-7: Events verweisen auf einen Ort statt einer Kopie. Werden die Koordinaten eines Orts geändert, liefern alle Events dieses Orts die neuen Koordinaten. Ein Ort, auf den noch Events verweisen (auch archivierte), kann nicht gelöscht werden.
+FR-7: Events verweisen auf einen Ort statt einer Kopie. Werden die Koordinaten eines Orts geändert, liefern alle Events dieses Orts die neuen Koordinaten. Ein Ort, auf den noch Events (auch archivierte) oder Programmpunkte verweisen, kann nicht gelöscht werden.
 
 **Öffentliche Lese-API**
 
@@ -46,7 +46,7 @@ FR-8: Eine Abfrage ohne Filter liefert alle aktiven Events, deren Zeitraum den h
 
 FR-9: Filter nach Zeitraum (`from`/`to`) und einem oder mehreren Event-Typen (ODER-Verknüpfung). Enthalten ist ein Event, wenn sich sein Zeitraum mit dem Filterzeitraum überschneidet. Auch mit Filter liefert die Abfrage nur aktive Events. Ungültige Filterwerte werden mit einer verständlichen Meldung im einheitlichen Fehlerformat abgelehnt.
 
-FR-10: Jedes ausgelieferte Event enthält alle Angaben aus FR-1 und den vollständigen Ort (Name, Adresse, Koordinaten, Ortsgenauigkeit, Notiz). Zwei Events am selben Ort liefern denselben, eindeutigen Ortsnamen und identische Koordinaten. Zeitgenauigkeit, Ortsgenauigkeit und Quelle sind immer enthalten. Die Antwort enthält keine internen Werte (Kennungen, Import-Schlüssel, Archivierungszeitpunkt, Vergleichsschlüssel).
+FR-10: Jedes ausgelieferte Event enthält alle Angaben aus FR-1 und den vollständigen Ort (Name, Adresse, Koordinaten, Ortsgenauigkeit, Notiz). Zwei Events am selben Ort liefern denselben, eindeutigen Ortsnamen und identische Koordinaten. Zeitgenauigkeit, Ortsgenauigkeit und Quelle sind immer enthalten. Jeder Programmpunkt enthält seinen eigenen Ort vollständig oder `null`, wenn der Ort des Events gilt. Die Antwort enthält keine internen Werte (Kennungen, Import-Schlüssel, Archivierungszeitpunkt, Vergleichsschlüssel).
 
 FR-11: Events gibt es nur als Listen (FR-8, FR-9, FR-12), dazu die Liste aller Event-Typen. Es gibt keinen Einzelabruf und keine eigene Ortsliste; Abnehmer speichern keine Kennungen. Ob ein Event archiviert ist, ergibt sich aus der Liste, in der es steht; ein eigenes Feld gibt es nicht. Maßgeblich ist die Vorbei-Regel: Ein Event ist vorbei, sobald `effectiveEnd <= now` (AD-4). Außerhalb des Umfangs: Schreibzugriff, Einzelabruf, Ortsliste, Volltextsuche, Umkreissuche, Paginierung.
 
@@ -64,7 +64,7 @@ FR-15: Der Admin kann Events und Orte anlegen, bearbeiten und löschen, auch arc
 
 **JSON-Import**
 
-FR-16: Die Import-Datei hat eine Formatversion und ist dokumentiert. Eine unbekannte oder fehlende Version wird mit klarer Meldung abgelehnt. Das Format bildet alle Angaben aus FR-1 bis FR-6 ab, einschließlich des optionalen Import-Schlüssels. Jedes Event bringt seinen Ort mit, mindestens mit Namen; ein Ort mit vorhandenem Namen wird dem vorhandenen Ort zugeordnet. Die Datei enthält keine internen Kennungen. Ein mitgebrachter neuer Ort braucht Adresse und Koordinaten, sonst ist der Eintrag fehlerhaft. Neue Orte zeigt die Vorschau gesondert an.
+FR-16: Die Import-Datei hat eine Formatversion und ist dokumentiert. Eine unbekannte oder fehlende Version wird mit klarer Meldung abgelehnt. Das Format bildet alle Angaben aus FR-1 bis FR-6 ab, einschließlich des optionalen Import-Schlüssels. Jedes Event bringt seinen Ort mit, mindestens mit Namen; ein Ort mit vorhandenem Namen wird dem vorhandenen Ort zugeordnet. Ein Programmpunkt kann ebenso einen eigenen Ort mitbringen. Die Datei enthält keine internen Kennungen. Ein mitgebrachter neuer Ort braucht Adresse und Koordinaten, sonst ist der Eintrag fehlerhaft. Neue Orte zeigt die Vorschau gesondert an.
 
 FR-17: Vor dem Übernehmen zeigt der Import für jedes Event: neu, Aktualisierung, Duplikatverdacht oder Fehler. Ein vorhandener Import-Schlüssel führt zu einer Aktualisierung. Ohne passenden Schlüssel, aber mit gleichem Titel, Beginn-Datum (nicht Uhrzeit) und Ort entsteht ein Duplikatverdacht. Gleicher Titel an einem anderen Datum ist kein Verdacht. Fehlerhafte Einträge werden einzeln mit Grund gemeldet und blockieren die übrigen nicht.
 
@@ -111,14 +111,14 @@ Die Punkte mit AD-Nummer sind Architekturentscheidungen aus dem Spine, nach Them
 **Struktur und Abhängigkeiten**
 - AD-1: Hexagonal light, genau eine Replika. `internal/core` importiert nur die Standardbibliothek, einzige Ausnahme ist `golang.org/x/text/unicode/norm` (NFC). Adapter importieren nur `core`, nie einander. Nur `cmd/eventstore` kennt alle. Der Kern definiert die Ports `EventRepo`, `LocationRepo`, `TxRunner` und `Clock`.
 - AD-2: Fachlogik nur im Kern. SQL macht nur CRUD und einfache Vergleiche, ohne Views, Trigger, Funktionen, `lower()`/`trim()` oder `now()`. Die aktuelle Zeit kommt als Parameter aus `Clock`. Abgeleitete Werte (`effective*`, `name_key`) berechnet der Kern und speichert sie.
-- AD-6: Schreiben nur über die Kern-Anwendungsfälle `SaveEvent`, `DeleteEvent`, `SaveLocation`, `DeleteLocation`, `CommitImport`, `RemoveImportKey`, `RecomputeDerived` und `MarkArchived`. Jeder Schreib-Anwendungsfall hat einen transaktionsgebundenen Kern und eine Hülle mit `TxRunner`; `CommitImport` ruft nur die Kerne in einer Transaktion auf. `SaveEvent` aus dem Admin ändert `importKey` nie; `CommitImport` setzt ihn, `RemoveImportKey` entfernt ihn. Admin und Import nutzen denselben Eingabetyp `core.EventInput`. Der Löschschutz für Orte liegt im Kern und zusätzlich im Fremdschlüssel `ON DELETE RESTRICT`.
+- AD-6: Schreiben nur über die Kern-Anwendungsfälle `SaveEvent`, `DeleteEvent`, `SaveLocation`, `DeleteLocation`, `CommitImport`, `RemoveImportKey`, `RecomputeDerived` und `MarkArchived`. Jeder Schreib-Anwendungsfall hat einen transaktionsgebundenen Kern und eine Hülle mit `TxRunner`; `CommitImport` ruft nur die Kerne in einer Transaktion auf. `SaveEvent` aus dem Admin ändert `importKey` nie; `CommitImport` setzt ihn, `RemoveImportKey` entfernt ihn. Admin und Import nutzen denselben Eingabetyp `core.EventInput`. Der Löschschutz für Orte liegt im Kern, zählt Events und Programmpunkte und liegt zusätzlich in je einem Fremdschlüssel `ON DELETE RESTRICT`.
 - AD-7: Lesen über die Kern-Abfragen `ListActiveEvents`, `ListArchivedEvents` und `ListEventTypes`, nur Listen. `GetEvent` und `ListLocations` nur für den Admin. Sortierung: aktive Events nach `effectiveStart` aufsteigend, Archiv absteigend, bei Gleichstand nach der internen `id`. Orte nach Namen im Kern (ENT-8). Den Archivstatus gibt die Public API nicht aus.
 
 **Zeitmodell**
 - AD-3: Gespeichert werden `startDate` (Pflicht), `startTime`, `endDate`, `endTime` (optional) und `allDay` (bool), lokal Europe/Berlin. Eine leere Uhrzeit heißt „unbekannt“. `allDay` gilt für Beginn und Ende gemeinsam, gemischte Angaben und `endTime` ohne `endDate` werden abgelehnt. Die Genauigkeit (`exact`/`dateOnly`/`allDay`) leitet der Kern je Beginn und Ende ab und speichert sie nicht.
 - AD-4: `effectiveStart`/`effectiveEnd` (timestamptz) werden bei jedem Schreiben berechnet. Ohne Uhrzeit beim Beginn gilt 00:00 des Beginn-Tages. Ohne Uhrzeit beim Ende gilt 00:00 des Tages nach dem End-Tag. Ohne Ende gilt 00:00 des Tages nach dem Beginn-Tag. Intervalle sind halboffen. Ein Ende mit `effectiveEnd <= effectiveStart` wird abgelehnt (ENT-1). Aktiv heißt `effectiveEnd > now`. Alle Lese-Abfragen filtern nur über diese Spalten. (Diese Regel ersetzt die „23:59:59“-Formulierung aus dem PRD-Addendum und ist gleichwertig.)
 - AD-16: Die einzige Umrechnung ist die Kernfunktion `ToInstant` (Europe/Berlin). Uhrzeiten in der Frühjahrslücke werden abgelehnt, doppelte Uhrzeiten im Herbst bekommen den früheren Offset. Die Zeit kommt nur aus `Clock`. Filter werden zu `[lo, hi)` normalisiert, ein reines Datum gilt als ganzer Tag inklusive. Das einzige Prädikat lautet `effectiveStart < hi AND effectiveEnd > lo`. Standardwerte von `from`/`to` je Endpunkt nach ENT-4. `time/tzdata` ist eingebettet. Beim Start berechnet `RecomputeDerived` alle abgeleiteten Werte neu, Fehler nach ENT-5; Startreihenfolge: Migrationen, `RecomputeDerived`, `MarkArchived`, HTTP-Server.
-- AD-15: Der Ablaufplan ist ein Wertobjekt des Events und wird nur über `SaveEvent` als ganze Liste ersetzt. Jeder Eintrag hat `description`, `date`, `startTime?` und `endTime?`. Einträge liegen in `[effectiveStart, effectiveEnd]`, über Mitternacht nach ENT-3, und ändern `effective*` nicht. Programmpunkt-IDs sind intern und nicht stabil (jedes Speichern ersetzt die Liste).
+- AD-15: Der Ablaufplan ist ein Wertobjekt des Events und wird nur über `SaveEvent` als ganze Liste ersetzt. Jeder Eintrag hat `description`, `date`, `startTime?`, `endTime?` und optional einen eigenen Ort (ENT-26); ohne ihn gilt der Ort des Events. Einträge liegen in `[effectiveStart, effectiveEnd]`, über Mitternacht nach ENT-3, und ändern `effective*` nicht. Programmpunkt-IDs sind intern und nicht stabil (jedes Speichern ersetzt die Liste).
 
 **Archiv und Bereinigung**
 - AD-5: Es gibt eine Tabelle. Der Archivstatus ergibt sich nur aus AD-4. Die API gibt ihn nicht als Feld aus; er ergibt sich aus der Liste. `archivedAt` ist nur eine Markierung für Statistik, die keine Abfrage auswertet. Sie bedeutet „zuletzt als archiviert markiert“: Jedes Speichern und jede ändernde Neuberechnung leert sie, `MarkArchived` setzt sie neu. Events mit „prüfen“ fehlen in beiden Listen.
@@ -127,11 +127,11 @@ Die Punkte mit AD-Nummer sind Architekturentscheidungen aus dem Spine, nach Them
 **API-Vertrag**
 - AD-8: Spec-first. `api/v1/openapi.yaml` (OpenAPI 3.1, Rückfall 3.0.3) ist die einzige Quelle. Das Gerüst erzeugt `oapi-codegen` (`std-http-server` + `strict-server`). Es wird eingecheckt und nie von Hand geändert. v2 bekäme eine eigene Spec und ein eigenes Paket, dazu ein Abschaltdatum in `info` und einen `Sunset`-Header. Öffentlich ausgeliefert werden `/v1/openapi.yaml`, `/v1/import-v1.schema.json` und `/v1/docs` (Redoc), statisch außerhalb der Spec mit offenem CORS.
 - AD-9: Enum-Codes und `EventInput` sind nur in `openapi.yaml` (`components/schemas`) definiert. Das Import-Schema bindet sie per `$ref` ein. Die Kern-Konstanten spiegeln die Codes, und ein CI-Test prüft die Übereinstimmung, auch für Längengrenzen (ENT-24). `formatVersion` ist Pflicht, unbekannte Versionen werden abgelehnt.
-- AD-14: Die Schreibform `EventInput` hat die Felder `title`, `type`, `location` (mitgebrachter Ort, `name` Pflicht, Rest optional), `startDate`, `startTime`, `endDate`, `endTime`, `allDay`, `source` (Objekt, ENT-10), `note`, `timetable` und `importKey`. Die Leseform `Event` ist ein eigenes Schema mit denselben Feldnamen (ohne `importKey`, `location` vollständig), plus `startPrecision`, `endPrecision`, `effectiveStart` und `effectiveEnd` (lokaler Offset Europe/Berlin), ohne Archivstatus. Keine Form nach außen enthält interne Werte. `Canonicalize` bringt Eingaben in eine kanonische Form.
+- AD-14: Die Schreibform `EventInput` hat die Felder `title`, `type`, `location` (mitgebrachter Ort, `name` Pflicht, Rest optional), `startDate`, `startTime`, `endDate`, `endTime`, `allDay`, `source` (Objekt, ENT-10), `note`, `timetable` und `importKey`. Die Leseform `Event` ist ein eigenes Schema mit denselben Feldnamen (ohne `importKey`, `location` vollständig), plus `startPrecision`, `endPrecision`, `effectiveStart` und `effectiveEnd` (lokaler Offset Europe/Berlin), ohne Archivstatus. Ein Programmpunkt hat `location` in beiden Formen: in der Schreibform mitgebracht oder fehlend, in der Leseform vollständig oder `null` (Schemas `TimetableEntryInput` und `TimetableEntry`). Keine Form nach außen enthält interne Werte. `Canonicalize` bringt Eingaben in eine kanonische Form.
 - Ressourcen (aus dem Addendum): `GET /v1/events` (`from`, `to`, `type`), `GET /v1/event-types`, `GET /v1/archive/events`.
 
 **Import**
-- AD-10: Der Import ist zustandslos. (1) Beim Upload wird jeder Eintrag geparst, validiert und gegen den gesamten Bestand klassifiziert, archivierte Events eingeschlossen. Die Klassen sind `new`, `update`, `unchanged`, `duplicateSuspect`, `error` und pro Ort `newLocation` (ENT-11). (2) Innerhalb der Datei macht ein doppelter `importKey` oder ein gemeinsames Ziel-Event beide Einträge zu `error`, gleiche Einträge werden untereinander zu `duplicateSuspect`, und ein neuer Ort wird nur einmal angelegt. (3) Der Zwischenstand liegt nur im Browser-Formular. (4) Beim Speichern wird der vollständige Satz samt Entscheidungen, ursprünglicher Klasse, Ziel-ID und den Fingerabdrücken der Bestands-Events, die geschrieben werden könnten, gesendet und neu klassifiziert. Bei einer Abweichung, auch bei einem seit dem Upload geänderten Ziel, wird der Eintrag als `stale` gemeldet. (5) `error`, `stale` und Verdachtsfälle ohne Entscheidung werden vor der Transaktion aussortiert, der Rest wird in einer Transaktion über `TxRunner` geschrieben, immer mit `allowDuplicates` (ENT-12). (6) Die Zusammenfassung nach ENT-11. Upload-Grenzen nach ENT-13.
+- AD-10: Der Import ist zustandslos. (1) Beim Upload wird jeder Eintrag geparst, validiert und gegen den gesamten Bestand klassifiziert, archivierte Events eingeschlossen. Die Klassen sind `new`, `update`, `unchanged`, `duplicateSuspect`, `error` und pro Ort `newLocation` (ENT-11); Orte von Programmpunkten werden genauso aufgelöst, und ein abweichender Ort eines Programmpunkts ist eine Änderung von `timetable`. (2) Innerhalb der Datei macht ein doppelter `importKey` oder ein gemeinsames Ziel-Event beide Einträge zu `error`, gleiche Einträge werden untereinander zu `duplicateSuspect`, und ein neuer Ort wird nur einmal angelegt. (3) Der Zwischenstand liegt nur im Browser-Formular. (4) Beim Speichern wird der vollständige Satz samt Entscheidungen, ursprünglicher Klasse, Ziel-ID und den Fingerabdrücken der Bestands-Events, die geschrieben werden könnten, gesendet und neu klassifiziert. Bei einer Abweichung, auch bei einem seit dem Upload geänderten Ziel, wird der Eintrag als `stale` gemeldet. (5) `error`, `stale` und Verdachtsfälle ohne Entscheidung werden vor der Transaktion aussortiert, der Rest wird in einer Transaktion über `TxRunner` geschrieben, immer mit `allowDuplicates` (ENT-12). (6) Die Zusammenfassung nach ENT-11. Upload-Grenzen nach ENT-13.
 - AD-11: IDs sind UUIDv7 per `DEFAULT uuidv7()` (PostgreSQL 18), rein intern; sie erscheinen weder in der API noch im Import-Schema. `importKey` ist eindeutig, wenn er gesetzt ist. Der Kern normalisiert alle Texte an einer Stelle auf NFC. `NormalizeKey` (trim, Leerraum zusammenfassen, lowercase) liefert den eindeutigen Ortsschlüssel `name_key` und den Titelschlüssel `title_key`. `FindDuplicateCandidates` vergleicht `title_key`, `startDate` und `locationId` über alle Events. `SaveEvent` erhält eine Policy `rejectDuplicates` oder `allowDuplicates`. Das Admin-Formular warnt zuerst und speichert erst nach Bestätigung mit `allowDuplicates`.
 
 **Sicherheit und Admin**
@@ -161,7 +161,7 @@ Die Punkte mit AD-Nummer sind Architekturentscheidungen aus dem Spine, nach Them
 
 ### Ergänzende Festlegungen (Review 2026-10-01)
 
-Diese Festlegungen präzisieren den Spine und sind in den Stories umgesetzt. Seit dem Spine-Update vom 2026-10-02 stehen sie im Spine (Pfeil = AD), maßgeblich ist dort der Wortlaut. ENT-15 bis ENT-23 kamen aus dem Review dieses Updates hinzu, ENT-24 mit dem Sprint Change Proposal vom 2026-10-05, ENT-25 mit dem vom 2026-10-07.
+Diese Festlegungen präzisieren den Spine und sind in den Stories umgesetzt. Seit dem Spine-Update vom 2026-10-02 stehen sie im Spine (Pfeil = AD), maßgeblich ist dort der Wortlaut. ENT-15 bis ENT-23 kamen aus dem Review dieses Updates hinzu, ENT-24 mit dem Sprint Change Proposal vom 2026-10-05, ENT-25 mit dem vom 2026-10-07, ENT-26 mit dem vom 2026-11-11.
 
 - ENT-1 (→ AD-4) Zeitraum prüfen: Ein Ende wird abgelehnt, wenn `effectiveEnd <= effectiveStart`. Verglichen werden immer die berechneten Werte, nie die Rohfelder. Ein eintägiges Event mit `endDate = startDate` (nur Datum) ist gültig.
 - ENT-2 (→ AD-3) Ganztägig: `allDay` gilt für Beginn und Ende gemeinsam. Gemischte Angaben (ein Teil ganztägig, der andere mit Uhrzeit) sind nicht darstellbar und werden abgelehnt. Die Spec dokumentiert das.
@@ -188,6 +188,7 @@ Diese Festlegungen präzisieren den Spine und sind in den Stories umgesetzt. Sei
 - ENT-23 (→ AD-8) Statische Pfade: `/v1/openapi.yaml`, `/v1/import-v1.schema.json` und `/v1/docs` sind statische Auslieferungen außerhalb der Spec, mit offenem CORS.
 - ENT-24 (→ AD-9, AD-11) Grenzen: Der Kern begrenzt Texte nach der NFC-Normalisierung in Zeichen (Unicode-Codepoints), für Admin und Import gleich: `title`, `location.name` und `street` höchstens 200; `city` höchstens 100; `source.description` und die Beschreibung eines Programmpunkts höchstens 500; `note` (Event, Ort) und `source.url` höchstens 2000; `importKey` höchstens 200; höchstens 100 Programmpunkte je Event. Die Grenzen stehen als `maxLength`/`maxItems` in `EventInput` und den eingebundenen Schemas von `openapi.yaml`; die Kern-Konstanten spiegeln sie, und der Test aus AD-9 prüft die Übereinstimmung.
 - ENT-25 (→ AD-18) Lastgrenzen: Jeder Request hat eine Deadline von 20 s; danach endet sein Kontext samt Datenbankabfrage, `/v1` antwortet mit `503` (Problem Details). Der Pool hat höchstens 10 Verbindungen. Höchstens zwei bcrypt-Vergleiche laufen gleichzeitig; ein weiterer Anmeldeversuch wird sofort abgelehnt und zählt nicht als Fehlversuch. `/v1` sendet `Cache-Control` (Listen und Event-Typen 60 s, Spec, Schema und Docs-Seite 300 s, Redoc-Skript 1 Tag, Fehler `no-store`) und liefert die statischen Dateien gzip-komprimiert aus.
+- ENT-26 (→ AD-15, AD-14) Ort eines Programmpunkts: optionaler Verweis auf einen Ort; `null` = Ort des Events, in Lese- und Schreibform. `Canonicalize` entfernt einen Verweis auf den Ort des Events. Der Löschschutz zählt Programmpunkte mit.
 
 ### Success Metrics
 
@@ -212,19 +213,19 @@ Es gibt kein UX-Dokument. Anforderungen an die Admin-Oberfläche ergeben sich au
 FR-1: Epic 1 - Event-Daten und Pflichtfelder
 FR-2: Epic 1 - Zeitgenauigkeit für Beginn und Ende
 FR-3: Epic 1 - Quelle
-FR-4: Epic 1 - Ablaufplan
+FR-4: Epic 1 - Ablaufplan; eigener Ort je Programmpunkt in Epic 5
 FR-5: Epic 1 - Feste Liste der Event-Typen
 FR-6: Epic 1 - Ortsdaten und Ortsgenauigkeit
-FR-7: Epic 1 - Ortsreferenz und Löschschutz
+FR-7: Epic 1 - Ortsreferenz und Löschschutz; Programmpunkte in Epic 5
 FR-8: Epic 2 - Standardabfrage „heute“
 FR-9: Epic 2 - Filter nach Zeitraum und Event-Typ
-FR-10: Epic 2 - Kartengerechte Antwort mit vollständigem Ort
+FR-10: Epic 2 - Kartengerechte Antwort mit vollständigem Ort; Ort des Programmpunkts in Epic 5 (Story 5.2)
 FR-11: Epic 2 - Nur Listen, Liste der Event-Typen
 FR-12: Epic 2 - Archiv-Zugriff
 FR-13: Epic 2 - Tägliche Bereinigung
 FR-14: Epic 1 - Admin-Anmeldung
 FR-15: Epic 1 - Events und Orte pflegen, Kartenpicker
-FR-16: Epic 3 - Versioniertes Import-Format
+FR-16: Epic 3 - Versioniertes Import-Format; Ort des Programmpunkts in Epic 5 (Story 5.3)
 FR-17: Epic 3 - Import-Vorschau
 FR-18: Epic 3 - Entscheidung bei Duplikatverdacht, Zusammenfassung
 NFR-1 bis NFR-3, KON-1 bis KON-8: Epic 2
@@ -249,6 +250,9 @@ SM-4: Epic 2 (Story 2.6, manuell)
 
 ### Epic 4: Der Dienst hält Überlastung und Missbrauch stand
 **FRs covered:** keine neuen; NFR-5 (Lastgrenzen), FR-14 (Anmeldeschutz), AD-18
+
+### Epic 5: Programmpunkte finden an einem eigenen Ort statt
+**FRs covered:** FR-4, FR-7, FR-10, FR-15, FR-16 (Erweiterung), AD-6, AD-14, AD-15, ENT-26
 
 ## Epic 1: Andreas pflegt Orte und Events im Admin
 
@@ -1413,3 +1417,126 @@ damit wiederholte Abrufe und die Docs-Seite weniger Traffic verursachen.
 - CORS-Header bleiben auf jeder Antwort (NFR-1).
 - `api.gen.go` wird mit `go generate ./...` neu erzeugt, falls sich die Spec ändert.
 - Nahtstellen: `serveEmbedded`, `serveStaticFile`, `readOnlyCORS` und die Problem-Antworten (2.1, 2.3, 2.6, ENT-23).
+
+## Epic 5: Programmpunkte finden an einem eigenen Ort statt
+**FRs covered:** FR-4, FR-7, FR-10, FR-15, FR-16 (Erweiterung), AD-6, AD-14, AD-15, ENT-26
+```
+
+#### V3d – Neues Epic 5 am Ende von `epics.md`
+
+## Epic 5: Programmpunkte finden an einem eigenen Ort statt
+
+Ein Programmpunkt kann an einem anderen Ort stattfinden als sein Event, zum Beispiel ein Konzert des Weihnachtsmarkts in der Kirche. Andreas wählt den Ort im Admin oder bringt ihn per Import mit, die Karten-App bekommt ihn über die API. Ohne eigenen Ort gilt der Ort des Events.
+
+**Hinweis:** Sprint Change Proposal 2026-11-11. Reihenfolge 5.1 → 5.2 → 5.3; 5.2 und 5.3 bauen auf dem Datenmodell aus 5.1 auf.
+
+### Story 5.1: Eigenen Ort für einen Programmpunkt im Admin wählen
+
+Als Admin,
+möchte ich für einen Programmpunkt einen anderen Ort als den des Events wählen,
+damit zum Beispiel das Konzert in der Kirche nicht am Marktplatz eingezeichnet wird.
+
+**Deckt ab:** FR-4, FR-7, FR-15, AD-6, AD-14, AD-15, ENT-26
+
+**Datenmodell:** Migration `00009`: Spalte `timetable_entries.location_id uuid NULL` mit Fremdschlüssel auf `locations (id) ON DELETE RESTRICT` und Index. `NULL` = Ort des Events.
+
+**Acceptance Criteria:**
+
+**Angenommen** das Event-Formular
+**Wenn** ich einen Programmpunkt hinzufüge
+**Dann** hat er eine Ortsauswahl mit „Ort des Events“ als Voreinstellung und allen vorhandenen Orten
+**Und** Hinzufügen und Entfernen gehen weiter ohne Neuladen (htmx)
+
+**Angenommen** ein Programmpunkt mit gewähltem eigenem Ort
+**Wenn** ich speichere und das Event wieder öffne
+**Dann** ist dieser Ort ausgewählt, und die Event-Ansicht zeigt ihn am Programmpunkt
+
+**Angenommen** ein Programmpunkt, für den ich den Ort des Events auswähle
+**Wenn** ich speichere
+**Dann** speichert der Kern keinen Verweis (`Canonicalize`), und beim nächsten Öffnen steht „Ort des Events“
+
+**Angenommen** ein Programmpunkt ohne eigenen Ort
+**Wenn** ich den Ort des Events ändere
+**Dann** gilt für den Programmpunkt der neue Ort
+
+**Angenommen** eine Ortskennung im Formular, die es nicht gibt
+**Wenn** ich speichere
+**Dann** lehnt der Kern das Speichern mit einer deutschen Meldung am betroffenen Punkt ab (`ErrValidation`)
+
+**Angenommen** ein Ort, auf den nur Programmpunkte verweisen
+**Wenn** ich ihn löschen will
+**Dann** lehnt `DeleteLocation` das ab, und die Meldung nennt, dass Programmpunkte ihn nutzen
+
+**Außerdem gilt:**
+- Der Ablaufplan wird weiter nur als ganze Liste über `SaveEvent` ersetzt (AD-15).
+- Duplikatprüfung, `effective*` und Sortierung bleiben unberührt. Der Ort eines Programmpunkts geht in keine davon ein.
+- Kein neuer Ort direkt aus dem Programmpunkt heraus; neue Orte entstehen wie bisher über die Ortsverwaltung oder beim Event (1.8).
+- sqlc-Code wird neu erzeugt und mitcommittet, nicht von Hand geändert.
+- Nahtstellen: `SaveEvent` und `Canonicalize` (1.7, 1.9), Ablaufplan-Formular (1.9), `DeleteLocation` und Löschrückfrage (1.11), `RecomputeDerived` liest Programmpunkte (2.5), Ablaufplan-Ersetzen im Import-Commit (3.3).
+
+### Story 5.2: Ort des Programmpunkts in der öffentlichen API
+
+Als Karten-App,
+möchte ich bei jedem Programmpunkt erfahren, ob er an einem eigenen Ort stattfindet,
+damit ich ihn an der richtigen Stelle zeigen kann.
+
+**Deckt ab:** FR-4, FR-10, NFR-2, NFR-3, AD-8, AD-9, AD-14, ENT-26
+
+**Acceptance Criteria:**
+
+**Angenommen** ein Event mit einem Programmpunkt mit eigenem Ort und einem ohne
+**Wenn** ich `/v1/events` oder `/v1/archive/events` abrufe
+**Dann** hat der erste `location` vollständig wie der Ort des Events (`name`, `address`, `latitude`, `longitude`, `precision`, `note`)
+**Und** der zweite hat `location: null`
+
+**Angenommen** die Spec
+**Wenn** ich `TimetableEntry` lese
+**Dann** ist `location` als `EventLocation` oder `null` beschrieben, mit dem Satz, dass `null` „findet am Ort des Events statt“ heißt, und mit Beispiel
+**Und** `EventInput.timetable` verweist auf ein eigenes Schema `TimetableEntryInput`, dessen `location` optional ist
+
+**Angenommen** ein Abnehmer, der `location` am Programmpunkt nicht kennt
+**Wenn** er die Antwort liest
+**Dann** funktioniert er weiter (rückwärtskompatible Ergänzung nach NFR-2)
+
+**Außerdem gilt:**
+- Keine internen Werte in der Antwort (FR-10): keine Ortskennung am Programmpunkt.
+- `api.gen.go` wird mit `go generate ./...` neu erzeugt, nicht von Hand geändert.
+- Der AD-9-Vertragstest deckt die neuen Felder ab.
+- Nahtstellen: Leseform und Mapping (2.3, 2.8), Spec-Beispiele und Doku (2.6), Cache-Header (4.3).
+
+### Story 5.3: Ort des Programmpunkts im Import
+
+Als Admin,
+möchte ich in der Import-Datei für einen Programmpunkt einen eigenen Ort mitgeben,
+damit recherchierte Programme mit ihren Orten ohne Nacharbeit im Bestand landen.
+
+**Deckt ab:** FR-4, FR-16, FR-17, AD-9, AD-10, AD-11, AD-14, ENT-26
+
+**Acceptance Criteria:**
+
+**Angenommen** ein Programmpunkt mit `location` mit dem Namen eines vorhandenen Orts
+**Wenn** ich die Datei hochlade
+**Dann** wird er diesem Ort zugeordnet
+
+**Angenommen** ein Programmpunkt mit `location` mit einem neuen Namen und vollständigen Angaben
+**Wenn** ich die Datei hochlade
+**Dann** zeigt die Vorschau den Ort als `newLocation`, einmal pro Name und Datei, auch wenn ihn mehrere Events oder Programmpunkte mitbringen
+**Und** ohne Adresse oder Koordinaten ist der Eintrag `error` mit Hinweis auf den Programmpunkt
+
+**Angenommen** ein Programmpunkt ohne `location` oder mit `location: null`
+**Wenn** ich importiere
+**Dann** gilt der Ort des Events
+
+**Angenommen** ein vorhandenes Event mit `importKey`, dessen Programmpunkt in der Datei einen anderen Ort hat
+**Wenn** ich hochlade
+**Dann** ist der Eintrag `update`, und die Änderungsanzeige nennt `timetable`
+**Und** derselbe Ort wie im Bestand ergibt `unchanged`
+
+**Angenommen** eine Datei aus der Zeit vor dieser Story
+**Wenn** ich sie erneut importiere
+**Dann** ändert sich nichts (`unchanged`), denn fehlendes `location` heißt Ort des Events
+
+**Außerdem gilt:**
+- Das Import-Schema bindet `TimetableEntryInput` per `$ref` ein (AD-9); `formatVersion` bleibt `1`, weil das Feld optional ist.
+- Mehrdeutige Ortsnamen sind `error` wie beim Ort des Events (C1).
+- Nahtstellen: Ortsauflösung und Klassifizierung (3.2, C1), `unchanged`-Vergleich und Änderungsanzeige (3.2), `isStale` und Commit (3.3, 3.6), Import-Format-Doku (3.1).
