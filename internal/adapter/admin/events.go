@@ -360,7 +360,7 @@ func (h *handler) renderEventForm(w http.ResponseWriter, r *http.Request, status
 		AllDayValue:      allDayChecked,
 		PrivacyHint:      msgNoPersonalData,
 		UnknownTimeHint:  msgUnknownTime,
-		Timetable:        timetableViews(form.values.Timetable, form.timetableErrors),
+		Timetable:        timetableViews(form.values.Timetable, locations, form.timetableErrors),
 		DuplicateWarning: duplicateWarningOf(form.duplicates, form.values, h.clock),
 	}
 	switch {

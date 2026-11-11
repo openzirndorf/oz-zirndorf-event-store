@@ -22,6 +22,10 @@ const (
 	TimetableFieldDate        = "date"
 	TimetableFieldStartTime   = "startTime"
 	TimetableFieldEndTime     = "endTime"
+	// TimetableFieldLocationID is internal to the admin form, which refers to
+	// a stored location by its ID. The public spec names the own location of
+	// an entry location and never gives out IDs (AD-14).
+	TimetableFieldLocationID = "locationId"
 )
 
 // A timetable field path has the form timetable[2].date.
@@ -33,15 +37,20 @@ const (
 )
 
 // TimetableEntry is one item of an event's timetable, a value object of the
-// event (AD-15). Its times follow the time model: nil means unknown, never
-// 00:00. An end time before the start time ends on the following day
-// (ENT-3).
+// event (AD-15). An entry without LocationID takes place at the location of
+// its event, so it moves along with the event. Its times follow the time
+// model: nil means unknown, never 00:00. An end time before the start time
+// ends on the following day (ENT-3).
 type TimetableEntry struct {
 	ID          string
 	Description string
 	Date        LocalDate
 	StartTime   *LocalTime
 	EndTime     *LocalTime
+	// LocationID is the ID of the entry's own location, empty for the
+	// location of the event. It is never the location of the event itself:
+	// Canonicalize removes that reference.
+	LocationID string
 }
 
 // TimetableEntryInput is a timetable entry as entered: the date as
@@ -51,6 +60,9 @@ type TimetableEntryInput struct {
 	Date        string
 	StartTime   string
 	EndTime     string
+	// LocationID refers to a stored location by ID; empty means the location
+	// of the event.
+	LocationID string
 }
 
 // TimetableField returns the field name of field within the timetable entry
@@ -87,6 +99,7 @@ func (in TimetableEntryInput) normalized() TimetableEntryInput {
 		Date:        normalizeText(in.Date),
 		StartTime:   normalizeText(in.StartTime),
 		EndTime:     normalizeText(in.EndTime),
+		LocationID:  normalizeText(in.LocationID),
 	}
 }
 
@@ -99,6 +112,7 @@ func compareTimetableInputs(a, b TimetableEntryInput) int {
 		strings.Compare(a.StartTime, b.StartTime),
 		strings.Compare(a.EndTime, b.EndTime),
 		strings.Compare(a.Description, b.Description),
+		strings.Compare(a.LocationID, b.LocationID),
 	)
 }
 
@@ -180,7 +194,7 @@ func parseTimetable(inputs []TimetableEntryInput, period *Period) ([]TimetableEn
 // form of each field, then the instants and the bounds.
 func parseTimetableEntry(in TimetableEntryInput, fields timetableEntryFields, period *Period) (TimetableEntry, []FieldError) {
 	var problems []FieldError
-	entry := TimetableEntry{Description: in.Description}
+	entry := TimetableEntry{Description: in.Description, LocationID: in.LocationID}
 	if entry.Description == "" {
 		problems = appendProblem(problems, fields.description, ProblemMissing)
 	}

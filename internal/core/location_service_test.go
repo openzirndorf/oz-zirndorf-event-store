@@ -416,6 +416,26 @@ func TestDeleteLocationRefusesALocationEventsReferToWithTheirCount(t *testing.T)
 	}
 }
 
+func TestDeleteLocationRefusesALocationOnlyTimetableEntriesReferToWithTheirCount(t *testing.T) {
+	locations := newFakeLocationRepo(hall(), park())
+	market := storedEvent(t, marketID, "Kirchweihmarkt", EventTimes{StartDate: kirchweihFriday})
+	market.Timetable = []TimetableEntry{
+		{ID: "1", Description: "Andacht", Date: kirchweihFriday, LocationID: parkID},
+		{ID: "2", Description: "Konzert", Date: kirchweihFriday, LocationID: parkID},
+		{ID: "3", Description: "Bieranstich", Date: kirchweihFriday},
+	}
+
+	err := newLocationServiceOn(locations, newFakeEventRepo(market)).DeleteLocation(context.Background(), parkID)
+
+	var inUse *LocationInUseError
+	if !errors.As(err, &inUse) || inUse.EventCount != 0 || inUse.TimetableEntryCount != 2 || !errors.Is(err, ErrConflict) {
+		t.Fatalf("err = %v, want *LocationInUseError with 2 timetable entries and no events", err)
+	}
+	if len(locations.deleted) != 0 {
+		t.Errorf("deleted = %v, want nothing", locations.deleted)
+	}
+}
+
 func TestDeleteLocationReportsAnUnknownLocationAsNotFound(t *testing.T) {
 	locations := newFakeLocationRepo(hall())
 
@@ -443,9 +463,12 @@ func TestDeleteLocationReportsAnEventAddedConcurrentlyAsPlainConflict(t *testing
 
 func TestDeleteLocationPassesFailuresOn(t *testing.T) {
 	tests := map[string]func(*fakeTx, *fakeLocationRepo, *fakeEventRepo){
-		"begin":  func(tx *fakeTx, _ *fakeLocationRepo, _ *fakeEventRepo) { tx.beginErr = errDatabaseDown },
-		"get":    func(_ *fakeTx, l *fakeLocationRepo, _ *fakeEventRepo) { l.getErr = errDatabaseDown },
-		"count":  func(_ *fakeTx, _ *fakeLocationRepo, e *fakeEventRepo) { e.countErr = errDatabaseDown },
+		"begin": func(tx *fakeTx, _ *fakeLocationRepo, _ *fakeEventRepo) { tx.beginErr = errDatabaseDown },
+		"get":   func(_ *fakeTx, l *fakeLocationRepo, _ *fakeEventRepo) { l.getErr = errDatabaseDown },
+		"count": func(_ *fakeTx, _ *fakeLocationRepo, e *fakeEventRepo) { e.countErr = errDatabaseDown },
+		"count timetable entries": func(_ *fakeTx, _ *fakeLocationRepo, e *fakeEventRepo) {
+			e.countEntriesErr = errDatabaseDown
+		},
 		"delete": func(_ *fakeTx, l *fakeLocationRepo, _ *fakeEventRepo) { l.deleteErr = errDatabaseDown },
 	}
 	for name, inject := range tests {

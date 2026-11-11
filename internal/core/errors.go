@@ -142,14 +142,16 @@ func (e *DuplicateSuspectError) Error() string {
 func (e *DuplicateSuspectError) Unwrap() error { return ErrDuplicateSuspect }
 
 // LocationInUseError reports that a location cannot be deleted because
-// events, archived ones included, still refer to it. It matches ErrConflict
-// with errors.Is.
+// events, archived ones included, or timetable entries still refer to it. It
+// matches ErrConflict with errors.Is.
 type LocationInUseError struct {
-	EventCount int
+	EventCount          int
+	TimetableEntryCount int
 }
 
 func (e *LocationInUseError) Error() string {
-	return "location is still used by " + strconv.Itoa(e.EventCount) + " events"
+	return "location is still used by " + strconv.Itoa(e.EventCount) + " events and " +
+		strconv.Itoa(e.TimetableEntryCount) + " timetable entries"
 }
 
 func (e *LocationInUseError) Unwrap() error { return ErrConflict }

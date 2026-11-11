@@ -74,9 +74,10 @@ func NewLocationService(tx TxRunner, repo LocationRepo) *LocationService {
 
 // DeleteLocation removes the location with id in one transaction. It
 // returns ErrNotFound for an unknown id, such as a location deleted before,
-// and *LocationInUseError with their number when events, archived ones
-// included, still refer to it. An event added concurrently after the count
-// makes the database refuse the delete; that yields a plain ErrConflict.
+// and *LocationInUseError with their numbers when events, archived ones
+// included, or timetable entries still refer to it. An event or entry added
+// concurrently after the count makes the database refuse the delete; that
+// yields a plain ErrConflict.
 // A successful delete clears the review mark of the collision group of the
 // location.
 func (s *LocationService) DeleteLocation(ctx context.Context, id string) error {
@@ -104,8 +105,12 @@ func deleteLocation(ctx context.Context, repos Repos, id string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("count events of location: %w", err)
 	}
-	if eventCount > 0 {
-		return "", &LocationInUseError{EventCount: eventCount}
+	entryCount, err := repos.Events.CountTimetableEntriesByLocation(ctx, current.ID)
+	if err != nil {
+		return "", fmt.Errorf("count timetable entries of location: %w", err)
+	}
+	if eventCount > 0 || entryCount > 0 {
+		return "", &LocationInUseError{EventCount: eventCount, TimetableEntryCount: entryCount}
 	}
 	if err := repos.Locations.Delete(ctx, current.ID); err != nil {
 		return "", fmt.Errorf("delete location: %w", err)

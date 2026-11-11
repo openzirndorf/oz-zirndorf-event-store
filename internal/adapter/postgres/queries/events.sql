@@ -59,16 +59,16 @@ SET archived_at = @now
 WHERE effective_end <= @now AND archived_at IS NULL;
 
 -- name: ListTimetableEntries :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries;
 
 -- name: ListTimetableEntriesOfEvent :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries
 WHERE event_id = $1;
 
 -- name: ListTimetableEntriesOfEvents :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries
 WHERE event_id = ANY(@event_ids::uuid[]);
 
@@ -77,9 +77,9 @@ DELETE FROM timetable_entries
 WHERE event_id = $1;
 
 -- name: CreateTimetableEntry :one
-INSERT INTO timetable_entries (event_id, description, date, start_time, end_time)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, event_id, description, date, start_time, end_time;
+INSERT INTO timetable_entries (event_id, description, date, start_time, end_time, location_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, event_id, description, date, start_time, end_time, location_id;
 
 -- name: DeleteEvent :execrows
 DELETE FROM events
@@ -88,6 +88,11 @@ WHERE id = $1;
 -- name: CountEventsByLocation :one
 SELECT count(*)
 FROM events
+WHERE location_id = $1;
+
+-- name: CountTimetableEntriesByLocation :one
+SELECT count(*)
+FROM timetable_entries
 WHERE location_id = $1;
 
 -- name: UpdateEventImportKey :execrows

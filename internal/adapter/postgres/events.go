@@ -173,15 +173,20 @@ func (r *EventRepo) Update(ctx context.Context, event core.Event) (core.Event, e
 func (r *EventRepo) withTimetable(ctx context.Context, row db.GetEventRow, entries []core.TimetableEntry) (core.Event, error) {
 	event := eventFromRow(row)
 	for _, entry := range entries {
+		entryLocationID, err := optionalLocationID(entry.LocationID)
+		if err != nil {
+			return core.Event{}, err
+		}
 		entryRow, err := r.queries.CreateTimetableEntry(ctx, db.CreateTimetableEntryParams{
 			EventID:     row.ID,
 			Description: entry.Description,
 			Date:        dateParam(entry.Date),
 			StartTime:   timeParam(entry.StartTime),
 			EndTime:     timeParam(entry.EndTime),
+			LocationID:  entryLocationID,
 		})
 		if err != nil {
-			return core.Event{}, fmt.Errorf("create timetable entry: %w", err)
+			return core.Event{}, translateError("create timetable entry", err)
 		}
 		event.Timetable = append(event.Timetable, timetableEntryFromRow(entryRow))
 	}
@@ -238,6 +243,22 @@ func (r *EventRepo) CountByLocation(ctx context.Context, locationID string) (int
 	count, err := r.queries.CountEventsByLocation(ctx, uuid)
 	if err != nil {
 		return 0, fmt.Errorf("count events of location: %w", err)
+	}
+	return int(count), nil
+}
+
+// CountTimetableEntriesByLocation returns how many timetable entries, those
+// of archived events included, refer to the location with locationID. The
+// core hands over the location ID as stored, so an unparsable one is a
+// programming error and not reported as core.ErrNotFound.
+func (r *EventRepo) CountTimetableEntriesByLocation(ctx context.Context, locationID string) (int, error) {
+	var uuid pgtype.UUID
+	if err := uuid.Scan(locationID); err != nil {
+		return 0, fmt.Errorf("location id %q to count timetable entries of: %w", locationID, err)
+	}
+	count, err := r.queries.CountTimetableEntriesByLocation(ctx, uuid)
+	if err != nil {
+		return 0, fmt.Errorf("count timetable entries of location: %w", err)
 	}
 	return int(count), nil
 }
@@ -345,13 +366,31 @@ func eventFromRow(row db.GetEventRow) core.Event {
 }
 
 func timetableEntryFromRow(row db.TimetableEntry) core.TimetableEntry {
-	return core.TimetableEntry{
+	entry := core.TimetableEntry{
 		ID:          row.ID.String(),
 		Description: row.Description,
 		Date:        localDateOf(row.Date),
 		StartTime:   localTimeOf(row.StartTime),
 		EndTime:     localTimeOf(row.EndTime),
 	}
+	if row.LocationID.Valid {
+		entry.LocationID = row.LocationID.String()
+	}
+	return entry
+}
+
+// optionalLocationID stores an entry without own location (empty ID) as
+// NULL. The core hands over the location ID as stored, so an unparsable one
+// is a programming error and not reported as core.ErrNotFound.
+func optionalLocationID(locationID string) (pgtype.UUID, error) {
+	var uuid pgtype.UUID
+	if locationID == "" {
+		return uuid, nil
+	}
+	if err := uuid.Scan(locationID); err != nil {
+		return pgtype.UUID{}, fmt.Errorf("location id %q of timetable entry: %w", locationID, err)
+	}
+	return uuid, nil
 }
 
 // dateParam stores a missing (zero) date as NULL.

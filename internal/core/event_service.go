@@ -40,6 +40,10 @@ type EventRepo interface {
 	// CountByLocation returns how many events, archived ones included,
 	// refer to the location with locationID.
 	CountByLocation(ctx context.Context, locationID string) (int, error)
+	// CountTimetableEntriesByLocation returns how many timetable entries,
+	// those of archived events included, refer to the location with
+	// locationID as their own location.
+	CountTimetableEntriesByLocation(ctx context.Context, locationID string) (int, error)
 	// FindByDuplicateKey returns all events, archived ones included, whose
 	// stored title key, start date and location ID equal key, without their
 	// timetable.
@@ -118,7 +122,8 @@ func NewEventService(tx TxRunner, events EventRepo, locations LocationRepo) *Eve
 // event with id, keeping its ID. Event and timetable are written in one
 // transaction, the timetable replacing the stored one (AD-15). It returns
 // ErrNotFound for an unknown id and *ValidationError listing every invalid
-// field, including an unknown location, also one deleted while saving.
+// field, including an unknown location of the event or of a timetable
+// entry, also one deleted while saving.
 // Only a valid event is checked for duplicates: under any policy but
 // AllowDuplicates a suspected duplicate is not saved and yields
 // *DuplicateSuspectError (AD-11); an edit that keeps the duplicate key is
@@ -131,11 +136,52 @@ func (s *EventService) SaveEvent(ctx context.Context, id string, in EventInput, 
 		saved, err = saveEvent(ctx, repos, id, in, policy)
 		return err
 	})
+	var refused *writeRefusedError
+	if errors.As(err, &refused) {
+		// The failed write ended the transaction, so the locations are
+		// checked again after it.
+		return Event{}, s.validationAfterRefusedWrite(ctx, refused.input)
+	}
 	if err != nil {
 		return Event{}, err
 	}
 	s.clearReview(saved.ID)
 	return saved, nil
+}
+
+// writeRefusedError reports that the database refused to store an event
+// whose locations the check before had found, so one of them was deleted
+// meanwhile. It carries the input to check the locations again. It matches
+// ErrConflict with errors.Is.
+type writeRefusedError struct {
+	input EventInput
+	err   error
+}
+
+func (e *writeRefusedError) Error() string {
+	return fmt.Sprintf("write of event refused, a location is gone: %v", e.err)
+}
+
+func (e *writeRefusedError) Unwrap() error { return ErrConflict }
+
+// validationAfterRefusedWrite returns the *ValidationError that names the
+// locations of in that do not exist any more: the location of the event and
+// the own locations of its timetable entries. When all of them exist, the
+// refusal is reported at the location of the event.
+func (s *EventService) validationAfterRefusedWrite(ctx context.Context, in EventInput) error {
+	_, problems, err := storedLocationID(ctx, s.locations, in.LocationID)
+	if err != nil {
+		return err
+	}
+	_, entryProblems, err := storedEntryLocationIDs(ctx, s.locations, in.Timetable)
+	if err != nil {
+		return err
+	}
+	problems = append(problems, entryProblems...)
+	if problems == nil {
+		problems = []FieldError{{Field: EventFieldLocationID, Problem: ProblemNotFound}}
+	}
+	return &ValidationError{Fields: problems}
 }
 
 // saveEvent is the transaction-bound part of SaveEvent.
@@ -144,17 +190,24 @@ func saveEvent(ctx context.Context, repos Repos, id string, in EventInput, polic
 	if err != nil {
 		return Event{}, err
 	}
+	in = in.normalized()
 	event, problems := newEvent(in)
 	locationID, locationProblems, err := storedLocationID(ctx, repos.Locations, event.LocationID)
 	if err != nil {
 		return Event{}, err
 	}
 	problems = append(problems, locationProblems...)
+	entryLocationIDs, entryProblems, err := storedEntryLocationIDs(ctx, repos.Locations, in.Timetable)
+	if err != nil {
+		return Event{}, err
+	}
+	problems = append(problems, entryProblems...)
 	if problems != nil {
 		return Event{}, &ValidationError{Fields: problems}
 	}
 
 	event.ID, event.LocationID = current.ID, locationID
+	event.Timetable = withStoredEntryLocations(event.Timetable, entryLocationIDs, locationID)
 	if needsDuplicateCheck(policy, current, event) {
 		if err := rejectDuplicates(ctx, repos.Events, event); err != nil {
 			return Event{}, err
@@ -162,8 +215,8 @@ func saveEvent(ctx context.Context, repos Repos, id string, in EventInput, polic
 	}
 	saved, err := writeEvent(ctx, repos.Events, event)
 	if errors.Is(err, ErrConflict) {
-		// The location was deleted after storedLocationID found it.
-		return Event{}, &ValidationError{Fields: []FieldError{{Field: EventFieldLocationID, Problem: ProblemNotFound}}}
+		// A location was deleted after the checks above found it.
+		return Event{}, &writeRefusedError{input: in, err: err}
 	}
 	if err != nil {
 		return Event{}, fmt.Errorf("save event: %w", err)
@@ -225,6 +278,51 @@ func storedLocationID(ctx context.Context, locations LocationRepo, id string) (s
 		return "", nil, fmt.Errorf("check event location: %w", err)
 	}
 	return location.ID, nil, nil
+}
+
+// storedEntryLocationIDs returns, for every own location ID of entries, the
+// ID as the repository spells it, and reports locationId notFound at each
+// entry whose location does not exist. Entries are in the order entered, so
+// the problems name them by that order.
+func storedEntryLocationIDs(ctx context.Context, locations LocationRepo, entries []TimetableEntryInput) (map[string]string, []FieldError, error) {
+	stored := map[string]string{}
+	missing := map[string]bool{}
+	var problems []FieldError
+	for index, entry := range entries {
+		id := entry.LocationID
+		if id == "" {
+			continue
+		}
+		if _, known := stored[id]; !known && !missing[id] {
+			location, err := locations.Get(ctx, id)
+			switch {
+			case errors.Is(err, ErrNotFound):
+				missing[id] = true
+			case err != nil:
+				return nil, nil, fmt.Errorf("check location of timetable entry: %w", err)
+			default:
+				stored[id] = location.ID
+			}
+		}
+		if missing[id] {
+			problems = append(problems, FieldError{Field: TimetableField(index, TimetableFieldLocationID), Problem: ProblemNotFound})
+		}
+	}
+	return stored, problems, nil
+}
+
+// withStoredEntryLocations returns entries with each own location ID spelled
+// as the repository does. An entry whose location is the one of the event,
+// in any spelling, has no own location.
+func withStoredEntryLocations(entries []TimetableEntry, storedIDs map[string]string, eventLocationID string) []TimetableEntry {
+	resolved := slices.Clone(entries)
+	for i, entry := range resolved {
+		resolved[i].LocationID = storedIDs[entry.LocationID]
+		if resolved[i].LocationID == eventLocationID {
+			resolved[i].LocationID = ""
+		}
+	}
+	return resolved
 }
 
 // writeEvent creates event when it has no ID and updates it otherwise.

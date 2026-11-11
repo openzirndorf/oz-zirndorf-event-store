@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"testing"
 	"time"
@@ -281,4 +282,154 @@ func TestEventServiceSavesTimetableAgainstDatabase(t *testing.T) {
 		t.Fatalf("GetEvent after rejection: %v", err)
 	}
 	assertSameEvent(t, unchanged, resaved)
+}
+
+// eventWithOwnLocationEntries has an entry at park, one at the event's own
+// location through no reference, and the timetable of eventWithTimetable
+// otherwise.
+func eventWithOwnLocationEntries(t *testing.T, hallID, parkID string) core.Event {
+	t.Helper()
+	event := minimalEvent(t, hallID)
+	event.Timetable = []core.TimetableEntry{
+		{Description: "Andacht", Date: event.Times.StartDate, LocationID: parkID},
+		{Description: "Markttag", Date: event.Times.StartDate},
+	}
+	return event
+}
+
+func ownLocationsOf(entries []core.TimetableEntry) map[string]string {
+	own := map[string]string{}
+	for _, entry := range entries {
+		own[entry.Description] = entry.LocationID
+	}
+	return own
+}
+
+func TestEventRepoStoresTheOwnLocationOfEntriesAndNullForNone(t *testing.T) {
+	fixture := newEventFixture(t)
+	park := createLocation(t, fixture.locations, parkLocation())
+
+	created := createEvent(t, fixture.repo, eventWithOwnLocationEntries(t, fixture.hall.ID, park.ID))
+
+	want := map[string]string{"Andacht": park.ID, "Markttag": ""}
+	for name, stored := range map[string]core.Event{"created": created, "got": getEvent(t, fixture.repo, created.ID)} {
+		if got := ownLocationsOf(stored.Timetable); !maps.Equal(got, want) {
+			t.Errorf("%s own locations = %v, want %v", name, got, want)
+		}
+	}
+	if nulls := countRows(t, fixture, "SELECT count(*) FROM timetable_entries WHERE location_id IS NULL"); nulls != 1 {
+		t.Errorf("%d entries without location_id, want the one at the location of the event", nulls)
+	}
+	events, err := fixture.repo.List(context.Background())
+	if err != nil || len(events) != 1 || !maps.Equal(ownLocationsOf(events[0].Timetable), want) {
+		t.Errorf("List = %+v, %v, want the own locations %v", events, err, want)
+	}
+}
+
+func TestEventRepoUpdateAndUpdateDerivedKeepTheOwnLocationOfEntries(t *testing.T) {
+	fixture := newEventFixture(t)
+	park := createLocation(t, fixture.locations, parkLocation())
+	created := createEvent(t, fixture.repo, eventWithOwnLocationEntries(t, fixture.hall.ID, park.ID))
+	ctx := context.Background()
+
+	if err := fixture.repo.UpdateDerived(ctx, created.ID, core.Derived{Period: created.Period, TitleKey: created.TitleKey}); err != nil {
+		t.Fatalf("UpdateDerived: %v", err)
+	}
+	if _, err := fixture.repo.Update(ctx, created); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	got := ownLocationsOf(getEvent(t, fixture.repo, created.ID).Timetable)
+	if want := (map[string]string{"Andacht": park.ID, "Markttag": ""}); !maps.Equal(got, want) {
+		t.Errorf("own locations = %v, want %v", got, want)
+	}
+}
+
+func TestEventRepoCountTimetableEntriesByLocationCountsEntriesOfArchivedEventsToo(t *testing.T) {
+	fixture := newEventFixture(t)
+	park := createLocation(t, fixture.locations, parkLocation())
+	createEvent(t, fixture.repo, eventWithOwnLocationEntries(t, fixture.hall.ID, park.ID))
+	archived := archivedEvent(t, fixture.hall.ID)
+	archived.Timetable = []core.TimetableEntry{{Description: "Kehraus", Date: archived.Times.StartDate, LocationID: park.ID}}
+	createEvent(t, fixture.repo, archived)
+	ctx := context.Background()
+
+	for locationID, want := range map[string]int{park.ID: 2, fixture.hall.ID: 0} {
+		if count, err := fixture.repo.CountTimetableEntriesByLocation(ctx, locationID); err != nil || count != want {
+			t.Errorf("CountTimetableEntriesByLocation(%s) = %d, %v, want %d", locationID, count, err, want)
+		}
+	}
+}
+
+func TestEventRepoCountTimetableEntriesByLocationRejectsMalformedIDWithoutClaimingNotFound(t *testing.T) {
+	fixture := newEventFixture(t)
+
+	if _, err := fixture.repo.CountTimetableEntriesByLocation(context.Background(), "kaputt"); err == nil || errors.Is(err, core.ErrNotFound) {
+		t.Errorf("err = %v, want a non-NotFound error", err)
+	}
+}
+
+func TestEventRepoRefusesAnEntryAtAMalformedOrDeletedLocation(t *testing.T) {
+	fixture := newEventFixture(t)
+	event := eventWithOwnLocationEntries(t, fixture.hall.ID, unknownLocationID)
+
+	_, conflictErr := fixture.repo.Create(context.Background(), event)
+	event.Timetable[0].LocationID = "kaputt"
+	_, malformedErr := fixture.repo.Create(context.Background(), event)
+
+	if !errors.Is(conflictErr, core.ErrConflict) {
+		t.Errorf("unknown location err = %v, want ErrConflict", conflictErr)
+	}
+	if malformedErr == nil || errors.Is(malformedErr, core.ErrNotFound) || errors.Is(malformedErr, core.ErrConflict) {
+		t.Errorf("malformed location err = %v, want a plain error", malformedErr)
+	}
+}
+
+func TestLocationRepoDeleteReportsAnEntryOfATimetableAsConflict(t *testing.T) {
+	fixture := newEventFixture(t)
+	park := createLocation(t, fixture.locations, parkLocation())
+	createEvent(t, fixture.repo, eventWithOwnLocationEntries(t, fixture.hall.ID, park.ID))
+
+	err := fixture.locations.Delete(context.Background(), park.ID)
+
+	if !errors.Is(err, core.ErrConflict) {
+		t.Errorf("err = %v, want ErrConflict from the foreign key of timetable_entries", err)
+	}
+}
+
+// TestSaveEventAndDeleteLocationRunWithOwnLocationsAgainstDatabase saves an
+// event through the core with an entry at another location, and shows that
+// this location cannot be deleted until the entry moves away.
+func TestSaveEventAndDeleteLocationRunWithOwnLocationsAgainstDatabase(t *testing.T) {
+	fixture := newEventFixture(t)
+	park := createLocation(t, fixture.locations, parkLocation())
+	tx := postgres.NewTxRunner(fixture.pool)
+	events := core.NewEventService(tx, fixture.repo, fixture.locations)
+	locations := core.NewLocationService(tx, fixture.locations)
+	ctx := context.Background()
+	in := core.EventInputOf(minimalEvent(t, fixture.hall.ID))
+	in.Timetable = []core.TimetableEntryInput{
+		{Description: "Andacht", Date: in.StartDate, LocationID: park.ID},
+		{Description: "Markttag", Date: in.StartDate, LocationID: fixture.hall.ID},
+	}
+
+	saved, err := events.SaveEvent(ctx, "", in, core.AllowDuplicates)
+	if err != nil {
+		t.Fatalf("SaveEvent: %v", err)
+	}
+	if got, want := ownLocationsOf(saved.Timetable), (map[string]string{"Andacht": park.ID, "Markttag": ""}); !maps.Equal(got, want) {
+		t.Errorf("own locations = %v, want %v: the location of the event is no own location", got, want)
+	}
+
+	var inUse *core.LocationInUseError
+	if err := locations.DeleteLocation(ctx, park.ID); !errors.As(err, &inUse) || inUse.EventCount != 0 || inUse.TimetableEntryCount != 1 {
+		t.Fatalf("DeleteLocation err = %v, want *LocationInUseError with 1 timetable entry", err)
+	}
+	in.Timetable[0].LocationID = ""
+	if _, err := events.SaveEvent(ctx, saved.ID, in, core.AllowDuplicates); err != nil {
+		t.Fatalf("SaveEvent without own location: %v", err)
+	}
+	if err := locations.DeleteLocation(ctx, park.ID); err != nil {
+		t.Errorf("DeleteLocation after the entry moved away: %v", err)
+	}
 }

@@ -49,4 +49,5 @@ type TimetableEntry struct {
 	Date        pgtype.Date
 	StartTime   pgtype.Time
 	EndTime     pgtype.Time
+	LocationID  pgtype.UUID
 }

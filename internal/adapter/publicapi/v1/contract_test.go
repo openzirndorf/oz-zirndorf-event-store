@@ -37,9 +37,9 @@ const (
 )
 
 // adminOnlyFields are core field names the spec deliberately lacks: the
-// admin refers to a stored location by its ID, which the API never gives
-// out (AD-14).
-var adminOnlyFields = []string{"EventFieldLocationID"}
+// admin refers to a stored location, of an event or of a timetable entry,
+// by its ID, which the API never gives out (AD-14).
+var adminOnlyFields = []string{"EventFieldLocationID", "TimetableFieldLocationID"}
 
 // fieldSchemas names, per prefix of the core constants, the generated
 // write-form type whose JSON fields, nested ones as dotted paths, must
