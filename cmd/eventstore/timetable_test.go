@@ -33,6 +33,7 @@ func TestRunSavesTimetableThroughTheWiredTransaction(t *testing.T) {
 		"timetable.date":        {"2026-10-16", "2026-10-16"},
 		"timetable.startTime":   {"22:00", "18:00"},
 		"timetable.endTime":     {"01:00", ""},
+		"timetable.locationId":  {"", ""},
 	}
 	status := logIn(t, running.baseURL).post(t, adminEventsPath, form)
 	running.stop(t)

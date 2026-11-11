@@ -115,3 +115,8 @@
   evidence: Railway-Doku „Config as Code“ (https://docs.railway.com/config-as-code/reference): Config as Code ist abgekündigt, bestehende `railway.json` wirken nur bis 2026-12-01. Danach fiele u. a. `drainingSeconds` auf 0 zurück und die Single-Replika-Annahme der Login-Sperre wäre nicht mehr per Code gesichert.
   status: done
   target: PR „Railway ohne Config as Code“ (2026-10-07): Andreas hat Infrastructure as Code als zu schwergewichtig verworfen. Health Check, Replika, Restart Policy und Builder stehen im Railway-Dashboard (README-Checkliste), Draining per Service-Variable `RAILWAY_DEPLOYMENT_DRAINING_SECONDS=30`; `railway.json` und `railway_test.go` entfernt, `checkDrainingTime` warnt beim Start auf Railway
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-1-eigenen-ort-fuer-programmpunkt-im-admin-waehlen.md`
+  summary: Erneuter Import einer Datei ohne Ort am Programmpunkt klassifiziert ein Event, dessen Programmpunkt im Admin einen eigenen Ort hat, als `update` mit scheinbar leerer Änderungsanzeige, und der Commit löscht den Ort.
+  evidence: `changesOf` (`internal/core/import_classify.go:268`) vergleicht `EventInputOf(stored).Timetable` mit dem importierten; der gespeicherte Eintrag trägt jetzt `LocationID`, der importierte nie. `timetableText` zeigt den Ort nicht. Der Frozen-Block von 5.1 schließt Änderungen am Import aus; 5.3 definiert „fehlender Ort = Ort des Events“ und die Änderungsanzeige. Bis 5.3 keine Programmpunkt-Orte im Echtbetrieb setzen (Entscheidung Andreas, 2026-11-11).
+  status: open
+  target: Story 5.3

@@ -74,14 +74,25 @@ const (
 	// The messages for a location that events still refer to: with their
 	// number from the core, or without it when the database refused the
 	// delete for an event added meanwhile.
-	msgLocationInUseOne  = "Dieser Ort kann nicht gelöscht werden, weil noch 1 Event auf ihn verweist."
-	msgLocationInUseMany = "Dieser Ort kann nicht gelöscht werden, weil noch %d Events auf ihn verweisen."
-	msgLocationStillUsed = "Dieser Ort wird noch von Events verwendet und kann nicht gelöscht werden."
+	msgLocationStillUsed = "Dieser Ort wird noch von Events oder Programmpunkten verwendet und kann nicht gelöscht werden."
 	backToLocationList   = "Zurück zur Ortsliste"
 )
 
-// singleEvent is the event count that takes the singular message.
-const singleEvent = 1
+// The parts of the message for a location that is still in use: the
+// users with their number, joined by "und", and the verb that agrees with
+// the total number of users.
+const (
+	msgLocationInUseFormat = "Dieser Ort kann nicht gelöscht werden, weil noch %s auf ihn %s."
+	msgUsersSeparator      = " und "
+	msgUsersSingleVerb     = "verweist"
+	msgUsersManyVerb       = "verweisen"
+	msgOneEvent            = "1 Event"
+	msgManyEvents          = "%d Events"
+	msgOneTimetableEntry   = "1 Programmpunkt"
+	msgManyTimetableEntry  = "%d Programmpunkte"
+	// singleUser is the count of a kind of user that takes the singular.
+	singleUser = 1
+)
 
 // logMsgLocationsFailed is logged when a location use case fails for a
 // reason the admin cannot show as a field message.
@@ -275,7 +286,7 @@ func (h *handler) deleteLocation(w http.ResponseWriter, r *http.Request) {
 		h.logger.Info(logMsgLocationDeleted, logKeyID, id)
 		redirectAfterDelete(w, r, locationsPath)
 	case errors.As(err, &inUse):
-		h.renderLocationInUse(w, r, id, locationInUseMessage(inUse.EventCount))
+		h.renderLocationInUse(w, r, id, locationInUseMessage(*inUse))
 	case errors.Is(err, core.ErrConflict):
 		h.renderLocationInUse(w, r, id, msgLocationStillUsed)
 	case errors.Is(err, core.ErrNotFound):
@@ -328,12 +339,29 @@ func (h *handler) locationFormPageAgain(w http.ResponseWriter, r *http.Request, 
 	return newLocationFormPage(form), true
 }
 
-// locationInUseMessage names how many events refer to the location.
-func locationInUseMessage(eventCount int) string {
-	if eventCount == singleEvent {
-		return msgLocationInUseOne
+// locationInUseMessage names how many events and how many timetable
+// entries refer to the location; a kind without users is left out.
+func locationInUseMessage(inUse core.LocationInUseError) string {
+	var users []string
+	if inUse.EventCount > 0 {
+		users = append(users, countedUsers(inUse.EventCount, msgOneEvent, msgManyEvents))
 	}
-	return fmt.Sprintf(msgLocationInUseMany, eventCount)
+	if inUse.TimetableEntryCount > 0 {
+		users = append(users, countedUsers(inUse.TimetableEntryCount, msgOneTimetableEntry, msgManyTimetableEntry))
+	}
+	verb := msgUsersManyVerb
+	if inUse.EventCount+inUse.TimetableEntryCount == singleUser {
+		verb = msgUsersSingleVerb
+	}
+	return fmt.Sprintf(msgLocationInUseFormat, strings.Join(users, msgUsersSeparator), verb)
+}
+
+// countedUsers is one for count 1 and many with the count otherwise.
+func countedUsers(count int, one, many string) string {
+	if count == singleUser {
+		return one
+	}
+	return fmt.Sprintf(many, count)
 }
 
 func (h *handler) renderLocationGone(w http.ResponseWriter) {

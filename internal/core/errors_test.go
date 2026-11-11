@@ -87,6 +87,18 @@ func TestLocationInUseErrorIsErrConflictAndCarriesEventCount(t *testing.T) {
 	}
 }
 
+func TestLocationInUseErrorCarriesTheTimetableEntryCount(t *testing.T) {
+	err := fmt.Errorf("delete: %w", &LocationInUseError{TimetableEntryCount: 2})
+
+	var inUse *LocationInUseError
+	if !errors.As(err, &inUse) || inUse.TimetableEntryCount != 2 || inUse.EventCount != 0 {
+		t.Fatalf("errors.As did not recover the timetable entry count from %v", err)
+	}
+	if !strings.Contains(err.Error(), "2 timetable entries") {
+		t.Errorf("message %q does not name the timetable entry count", err.Error())
+	}
+}
+
 func TestValidationErrorNamesTheExceededLimit(t *testing.T) {
 	err := &ValidationError{Fields: []FieldError{
 		{Field: EventFieldTitle, Problem: ProblemTooLong, Limit: MaxTitleLength},

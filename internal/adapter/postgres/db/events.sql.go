@@ -24,6 +24,19 @@ func (q *Queries) CountEventsByLocation(ctx context.Context, locationID pgtype.U
 	return count, err
 }
 
+const countTimetableEntriesByLocation = `-- name: CountTimetableEntriesByLocation :one
+SELECT count(*)
+FROM timetable_entries
+WHERE location_id = $1
+`
+
+func (q *Queries) CountTimetableEntriesByLocation(ctx context.Context, locationID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countTimetableEntriesByLocation, locationID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createEvent = `-- name: CreateEvent :one
 INSERT INTO events (title, title_key, type, location_id, start_date, start_time, end_date, end_time, all_day,
                     source_description, source_url, note, effective_start, effective_end)
@@ -108,9 +121,9 @@ func (q *Queries) CreateEvent(ctx context.Context, arg CreateEventParams) (Creat
 }
 
 const createTimetableEntry = `-- name: CreateTimetableEntry :one
-INSERT INTO timetable_entries (event_id, description, date, start_time, end_time)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, event_id, description, date, start_time, end_time
+INSERT INTO timetable_entries (event_id, description, date, start_time, end_time, location_id)
+VALUES ($1, $2, $3, $4, $5, $6)
+RETURNING id, event_id, description, date, start_time, end_time, location_id
 `
 
 type CreateTimetableEntryParams struct {
@@ -119,6 +132,7 @@ type CreateTimetableEntryParams struct {
 	Date        pgtype.Date
 	StartTime   pgtype.Time
 	EndTime     pgtype.Time
+	LocationID  pgtype.UUID
 }
 
 func (q *Queries) CreateTimetableEntry(ctx context.Context, arg CreateTimetableEntryParams) (TimetableEntry, error) {
@@ -128,6 +142,7 @@ func (q *Queries) CreateTimetableEntry(ctx context.Context, arg CreateTimetableE
 		arg.Date,
 		arg.StartTime,
 		arg.EndTime,
+		arg.LocationID,
 	)
 	var i TimetableEntry
 	err := row.Scan(
@@ -137,6 +152,7 @@ func (q *Queries) CreateTimetableEntry(ctx context.Context, arg CreateTimetableE
 		&i.Date,
 		&i.StartTime,
 		&i.EndTime,
+		&i.LocationID,
 	)
 	return i, err
 }
@@ -421,7 +437,7 @@ func (q *Queries) ListEventsOverlapping(ctx context.Context, arg ListEventsOverl
 }
 
 const listTimetableEntries = `-- name: ListTimetableEntries :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries
 `
 
@@ -441,6 +457,7 @@ func (q *Queries) ListTimetableEntries(ctx context.Context) ([]TimetableEntry, e
 			&i.Date,
 			&i.StartTime,
 			&i.EndTime,
+			&i.LocationID,
 		); err != nil {
 			return nil, err
 		}
@@ -453,7 +470,7 @@ func (q *Queries) ListTimetableEntries(ctx context.Context) ([]TimetableEntry, e
 }
 
 const listTimetableEntriesOfEvent = `-- name: ListTimetableEntriesOfEvent :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries
 WHERE event_id = $1
 `
@@ -474,6 +491,7 @@ func (q *Queries) ListTimetableEntriesOfEvent(ctx context.Context, eventID pgtyp
 			&i.Date,
 			&i.StartTime,
 			&i.EndTime,
+			&i.LocationID,
 		); err != nil {
 			return nil, err
 		}
@@ -486,7 +504,7 @@ func (q *Queries) ListTimetableEntriesOfEvent(ctx context.Context, eventID pgtyp
 }
 
 const listTimetableEntriesOfEvents = `-- name: ListTimetableEntriesOfEvents :many
-SELECT id, event_id, description, date, start_time, end_time
+SELECT id, event_id, description, date, start_time, end_time, location_id
 FROM timetable_entries
 WHERE event_id = ANY($1::uuid[])
 `
@@ -507,6 +525,7 @@ func (q *Queries) ListTimetableEntriesOfEvents(ctx context.Context, eventIds []p
 			&i.Date,
 			&i.StartTime,
 			&i.EndTime,
+			&i.LocationID,
 		); err != nil {
 			return nil, err
 		}

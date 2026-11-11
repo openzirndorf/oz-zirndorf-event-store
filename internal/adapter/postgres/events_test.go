@@ -388,6 +388,10 @@ func TestEventRepoPassesDatabaseFailuresOnUntranslated(t *testing.T) {
 			_, err := repo.CountByLocation(ctx, unknownLocationID)
 			return err
 		},
+		"CountTimetableEntriesByLocation": func() error {
+			_, err := repo.CountTimetableEntriesByLocation(ctx, unknownLocationID)
+			return err
+		},
 		"FindByDuplicateKey": func() error {
 			_, err := repo.FindByDuplicateKey(ctx, core.DuplicateKey{LocationID: unknownLocationID})
 			return err

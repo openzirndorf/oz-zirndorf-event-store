@@ -3,6 +3,7 @@ package core
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,8 +23,8 @@ func entryInput(description, date, startTime, endTime string) TimetableEntryInpu
 }
 
 func TestTimetableFieldNames(t *testing.T) {
-	got := []string{EventFieldTimetable, TimetableFieldDescription, TimetableFieldDate, TimetableFieldStartTime, TimetableFieldEndTime}
-	want := []string{"timetable", "description", "date", "startTime", "endTime"}
+	got := []string{EventFieldTimetable, TimetableFieldDescription, TimetableFieldDate, TimetableFieldStartTime, TimetableFieldEndTime, TimetableFieldLocationID}
+	want := []string{"timetable", "description", "date", "startTime", "endTime", "locationId"}
 	if !slices.Equal(got, want) {
 		t.Errorf("timetable field names = %v, want %v", got, want)
 	}
@@ -370,5 +371,95 @@ func TestNewEventReportsTooManyEntriesBesideTheirOwnProblems(t *testing.T) {
 	}
 	if !slices.Equal(problems, want) {
 		t.Errorf("problems = %v, want %v", problems, want)
+	}
+}
+
+func entryAt(description, locationID string) TimetableEntryInput {
+	entry := entryInput(description, "2026-10-16", "19:00", "")
+	entry.LocationID = locationID
+	return entry
+}
+
+func TestCanonicalizeKeepsTheOwnLocationOfAnEntry(t *testing.T) {
+	in := festInput(entryAt("Andacht", " "+parkID+" "))
+
+	got := in.Canonicalize().Timetable
+
+	if len(got) != 1 || got[0].LocationID != parkID {
+		t.Errorf("timetable = %+v, want the own location %s kept and trimmed", got, parkID)
+	}
+}
+
+func TestCanonicalizeRemovesTheReferenceToTheLocationOfTheEvent(t *testing.T) {
+	in := festInput(entryAt("Bieranstich", hallID), entryAt("Konzert", strings.ToUpper(hallID)), entryAt("Andacht", parkID))
+
+	own := map[string]string{}
+	for _, entry := range in.Canonicalize().Timetable {
+		own[entry.Description] = entry.LocationID
+	}
+
+	if own["Bieranstich"] != "" || own["Konzert"] != "" || own["Andacht"] != parkID {
+		t.Errorf("own locations = %v, want the event's location removed in any letter case and %s kept", own, parkID)
+	}
+}
+
+func TestCanonicalizeKeepsEveryEntryLocationWhenTheEventHasNone(t *testing.T) {
+	in := festInput(entryAt("Andacht", parkID))
+	in.LocationID = ""
+
+	if got := in.Canonicalize().Timetable[0].LocationID; got != parkID {
+		t.Errorf("own location = %q, want %s kept", got, parkID)
+	}
+}
+
+func TestEventInputOfGivesTheOwnLocationOfEachEntry(t *testing.T) {
+	event := storedEvent(t, marketID, "Kirchweihmarkt", EventTimes{StartDate: kirchweihFriday})
+	event.Timetable = []TimetableEntry{
+		{ID: "1", Description: "Andacht", Date: kirchweihFriday, LocationID: parkID},
+		{ID: "2", Description: "Bieranstich", Date: kirchweihFriday},
+	}
+
+	got := EventInputOf(event).Timetable
+
+	if got[0].LocationID != parkID || got[1].LocationID != "" {
+		t.Errorf("own locations = %q, %q, want %s and none", got[0].LocationID, got[1].LocationID, parkID)
+	}
+}
+
+func TestNewEventKeepsTheOwnLocationOfAnEntryWithoutCheckingItsExistence(t *testing.T) {
+	event, problems := newEvent(festInput(entryAt("Andacht", parkID)))
+
+	if problems != nil || event.Timetable[0].LocationID != parkID {
+		t.Errorf("problems = %v, own location = %q, want none and %s (the service checks existence)", problems, event.Timetable[0].LocationID, parkID)
+	}
+}
+
+func TestEventFingerprintChangesWithTheOwnLocationOfAnEntryButNotWithTheEventsOwn(t *testing.T) {
+	entry := TimetableEntry{ID: "1", Description: "Andacht", Date: kirchweihFriday}
+	event := storedEvent(t, marketID, "Kirchweihmarkt", EventTimes{StartDate: kirchweihFriday})
+	event.Timetable = []TimetableEntry{entry}
+	withLocation := event
+	entry.LocationID = parkID
+	withLocation.Timetable = []TimetableEntry{entry}
+	atEventLocation := event
+	entry.LocationID = hallID
+	atEventLocation.Timetable = []TimetableEntry{entry}
+
+	if EventFingerprint(event) == EventFingerprint(withLocation) {
+		t.Error("fingerprint unchanged after giving an entry its own location")
+	}
+	if EventFingerprint(event) != EventFingerprint(atEventLocation) {
+		t.Error("fingerprint differs between no own location and the location of the event")
+	}
+}
+
+func TestCanonicalizeOrdersEntriesThatDifferOnlyByOwnLocationTheSameWayInAnyInputOrder(t *testing.T) {
+	atPark, atHall := entryAt("Konzert", parkID), entryAt("Konzert", hallID)
+
+	first := festInput(atPark, atHall).Canonicalize().Timetable
+	second := festInput(atHall, atPark).Canonicalize().Timetable
+
+	if !slices.Equal(first, second) {
+		t.Errorf("timetable = %+v for one input order and %+v for the other, want the same", first, second)
 	}
 }

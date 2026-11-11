@@ -33,6 +33,7 @@ func festForm(locationID string, entries ...[4]string) url.Values {
 		form.Add(timetableFormDate, entry[1])
 		form.Add(timetableFormStartTime, entry[2])
 		form.Add(timetableFormEndTime, entry[3])
+		form.Add(timetableFormLocationID, "")
 	}
 	return form
 }
@@ -79,6 +80,7 @@ func TestTimetableEntryFragmentIsAnEmptyEntryWithRemoveButton(t *testing.T) {
 		`<label>Datum`, `name="`+timetableFormDate+`" type="date" value=""`,
 		`<label>Beginn-Uhrzeit (optional)`, `name="`+timetableFormStartTime+`" type="time" value=""`,
 		`<label>End-Uhrzeit (optional)`, `name="`+timetableFormEndTime+`" type="time" value=""`,
+		`<label>Ort`, `<select name="`+timetableFormLocationID+`">`, `<option value="">Ort des Events</option>`,
 		`hx-on:click="this.closest('fieldset').remove()"`, "Programmpunkt entfernen",
 	)
 	body := html.UnescapeString(rec.Body.String())
@@ -260,6 +262,7 @@ func TestTimetableTimesInTheSpringGapShowTheDaylightSavingMessage(t *testing.T) 
 		form.Add(timetableFormDate, entry[1])
 		form.Add(timetableFormStartTime, entry[2])
 		form.Add(timetableFormEndTime, entry[3])
+		form.Add(timetableFormLocationID, "")
 	}
 
 	rec := ts.post(eventsPath, form)
@@ -289,7 +292,7 @@ func TestUnexpectedTimetableProblemFallsBackToGenericMessage(t *testing.T) {
 func TestEventFormWithUnevenTimetableFieldsIsABadRequest(t *testing.T) {
 	ts := newTestServer(t)
 	hall := ts.seed(t, hallName)
-	for _, field := range []string{timetableFormDescription, timetableFormDate, timetableFormStartTime, timetableFormEndTime} {
+	for _, field := range []string{timetableFormDescription, timetableFormDate, timetableFormStartTime, timetableFormEndTime, timetableFormLocationID} {
 		form := festForm(hall.ID, bieranstich)
 		form.Add(field, "zusätzlich")
 
@@ -316,6 +319,7 @@ func TestEventFormAcceptsEveryTextAndTheTimetableAtTheirLimits(t *testing.T) {
 		form.Add(timetableFormDate, "2026-10-17")
 		form.Add(timetableFormStartTime, "10:00")
 		form.Add(timetableFormEndTime, "11:00")
+		form.Add(timetableFormLocationID, "")
 	}
 
 	event := ts.seedEvent(t, form)
@@ -380,4 +384,137 @@ func fieldErrorsIn(markup string) []string {
 		messages = append(messages, message)
 	}
 	return messages
+}
+
+const churchName = "Stadtkirche"
+
+// withEntryLocations sets the own location of each entry of form, in order;
+// an empty ID is the location of the event.
+func withEntryLocations(form url.Values, locationIDs ...string) url.Values {
+	form[timetableFormLocationID] = locationIDs
+	return form
+}
+
+// selectedOptionsIn returns the labels of the selected options within
+// markup, in order.
+func selectedOptionsIn(markup string) []string {
+	var labels []string
+	for _, part := range strings.Split(markup, " selected>")[1:] {
+		label, _, _ := strings.Cut(part, "</option>")
+		labels = append(labels, label)
+	}
+	return labels
+}
+
+func TestTimetableEntryFragmentOffersEveryLocationWithTheEventLocationPreselected(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+
+	rec := ts.htmxGet(timetableEntryPath)
+
+	assertStatusCode(t, rec, http.StatusOK)
+	assertBodyContains(t, rec,
+		`<option value="">Ort des Events</option>`,
+		`<option value="`+hall.ID+`">`+hallName+`</option>`,
+		`<option value="`+church.ID+`">`+churchName+`</option>`,
+	)
+	if got := selectedOptionsIn(rec.Body.String()); len(got) != 0 {
+		t.Errorf("selected options = %q, want none: an empty value selects the location of the event", got)
+	}
+}
+
+func TestSavingAnEntryAtAnotherLocationStoresItAndTheEditFormSelectsIt(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	form := withEntryLocations(festForm(hall.ID, bieranstich, disco), "", church.ID)
+
+	event := ts.seedEvent(t, form)
+
+	own := map[string]string{}
+	for _, entry := range event.Timetable {
+		own[entry.Description] = entry.LocationID
+	}
+	if own["Bieranstich"] != "" || own["Disco"] != church.ID {
+		t.Fatalf("own locations = %v, want Disco at %s and Bieranstich at the event", own, church.ID)
+	}
+	entries := timetableEntriesOf(ts.get(eventPath(event.ID)))
+	if got := selectedOptionsIn(entries[0]); len(got) != 0 {
+		t.Errorf("Bieranstich selects %q, want the location of the event", got)
+	}
+	if got := selectedOptionsIn(entries[1]); !slices.Equal(got, []string{churchName}) {
+		t.Errorf("Disco selects %q, want %q", got, churchName)
+	}
+}
+
+func TestSavingAnEntryAtTheLocationOfTheEventStoresNoOwnLocation(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	event := ts.seedEvent(t, withEntryLocations(festForm(hall.ID, bieranstich), hall.ID))
+
+	rec := ts.get(eventPath(event.ID))
+
+	if got := event.Timetable[0].LocationID; got != "" {
+		t.Errorf("own location = %q, want none", got)
+	}
+	if got := selectedOptionsIn(timetableEntriesOf(rec)[0]); len(got) != 0 {
+		t.Errorf("entry selects %q, want the location of the event", got)
+	}
+}
+
+func TestEntryWithOnlyAnOwnLocationIsNotBlank(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	form := withEntryLocations(festForm(hall.ID, blankEntry, blankEntry), "", church.ID)
+
+	rec := ts.post(eventsPath, form)
+
+	assertStatusCode(t, rec, http.StatusUnprocessableEntity)
+	entries := timetableEntriesOf(rec)
+	if len(entries) != 1 || !slices.Equal(selectedOptionsIn(entries[0]), []string{churchName}) {
+		t.Errorf("form shows %d entries, want only the one with the own location, selected", len(entries))
+	}
+	assertBodyContains(t, rec, "Bitte eine Beschreibung angeben.")
+}
+
+func TestUnknownEntryLocationShowsAMessageAtTheEntryAndKeepsTheOtherInput(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	form := withEntryLocations(festForm(hall.ID, bieranstich, disco), unknownLocationID, church.ID)
+
+	rec := ts.post(eventsPath, form)
+
+	assertStatusCode(t, rec, http.StatusUnprocessableEntity)
+	entries := timetableEntriesOf(rec)
+	if got := fieldErrorsIn(entries[0]); !slices.Equal(got, []string{msgEntryLocationGone}) {
+		t.Errorf("entry 0 messages = %q, want the location message", got)
+	}
+	if got := fieldErrorsIn(entries[1]); got != nil {
+		t.Errorf("entry 1 messages = %q, want none", got)
+	}
+	if got := selectedOptionsIn(entries[1]); !slices.Equal(got, []string{churchName}) {
+		t.Errorf("entry 1 selects %q, want %q kept", got, churchName)
+	}
+	assertBodyContains(t, rec, msgTimetableProblems)
+	if len(ts.events.events) != 0 {
+		t.Error("an event with an unknown entry location was stored")
+	}
+}
+
+func TestEventAtANewLocationKeepsEntriesWithoutOwnLocationWithIt(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	event := ts.seedEvent(t, withEntryLocations(festForm(hall.ID, bieranstich), ""))
+
+	rec := ts.post(eventPath(event.ID), withEntryLocations(festForm(church.ID, bieranstich), ""))
+
+	assertRedirect(t, rec, eventsPath)
+	stored := ts.events.events[event.ID]
+	if stored.LocationID != church.ID || stored.Timetable[0].LocationID != "" {
+		t.Errorf("location = %q, own location = %q, want the event at %s and the entry without own location", stored.LocationID, stored.Timetable[0].LocationID, church.ID)
+	}
 }

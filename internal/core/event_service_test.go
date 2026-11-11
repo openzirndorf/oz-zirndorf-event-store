@@ -32,6 +32,7 @@ type fakeEventRepo struct {
 	findErr          error
 	deleteErr        error
 	countErr         error
+	countEntriesErr  error
 	updateDerivedErr map[string]error
 	overlapErr       error
 	archiveErr       error
@@ -170,6 +171,22 @@ func (r *fakeEventRepo) CountByLocation(_ context.Context, locationID string) (i
 	for _, event := range r.events {
 		if event.LocationID == locationID {
 			count++
+		}
+	}
+	return count, nil
+}
+
+// CountTimetableEntriesByLocation counts entries by their own location.
+func (r *fakeEventRepo) CountTimetableEntriesByLocation(_ context.Context, locationID string) (int, error) {
+	if r.countEntriesErr != nil {
+		return 0, r.countEntriesErr
+	}
+	count := 0
+	for _, event := range r.events {
+		for _, entry := range event.Timetable {
+			if entry.LocationID == locationID {
+				count++
+			}
 		}
 	}
 	return count, nil
@@ -1128,5 +1145,186 @@ func TestRemoveImportKeyPassesFailuresOn(t *testing.T) {
 				t.Errorf("err = %v, want %v", err, errDatabaseDown)
 			}
 		})
+	}
+}
+
+func TestSaveEventStoresTheOwnLocationOfEntriesAsTheRepositorySpellsIt(t *testing.T) {
+	events := newFakeEventRepo()
+	in := festInput(entryAt("Andacht", strings.ToUpper(parkID)), entryAt("Bieranstich", ""))
+
+	saved, err := newTestEventService(events, hall(), park()).SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+	if err != nil {
+		t.Fatalf("SaveEvent: %v", err)
+	}
+	own := map[string]string{}
+	for _, entry := range saved.Timetable {
+		own[entry.Description] = entry.LocationID
+	}
+	if own["Andacht"] != parkID || own["Bieranstich"] != "" {
+		t.Errorf("own locations = %v, want Andacht at %s and Bieranstich at the event", own, parkID)
+	}
+}
+
+func TestSaveEventStoresNoOwnLocationForAnEntryAtTheLocationOfTheEvent(t *testing.T) {
+	for name, spelling := range map[string]string{"as stored": hallID, "other letter case": strings.ToUpper(hallID)} {
+		t.Run(name, func(t *testing.T) {
+			in := festInput(entryAt("Bieranstich", spelling))
+			in.LocationID = strings.ToUpper(hallID)
+
+			saved, err := newTestEventService(newFakeEventRepo(), hall()).SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+			if err != nil || saved.Timetable[0].LocationID != "" {
+				t.Errorf("own location = %q, err = %v, want none", saved.Timetable[0].LocationID, err)
+			}
+		})
+	}
+}
+
+func TestSaveEventKeepsAnEntryWithoutOwnLocationAtTheNewLocationOfTheEvent(t *testing.T) {
+	events := newFakeEventRepo()
+	service := newTestEventService(events, hall(), park())
+	saved, err := service.SaveEvent(context.Background(), "", festInput(entryAt("Bieranstich", "")), RejectDuplicates)
+	if err != nil {
+		t.Fatalf("SaveEvent: %v", err)
+	}
+
+	moved := EventInputOf(saved)
+	moved.LocationID = parkID
+	got, err := service.SaveEvent(context.Background(), saved.ID, moved, RejectDuplicates)
+
+	if err != nil || got.LocationID != parkID || got.Timetable[0].LocationID != "" {
+		t.Errorf("location = %q, own location = %q, err = %v, want the event at %s and the entry without own location", got.LocationID, got.Timetable[0].LocationID, err, parkID)
+	}
+}
+
+func TestSaveEventReportsAnUnknownEntryLocationAtTheEntryAsEntered(t *testing.T) {
+	events := newFakeEventRepo()
+	in := festInput(
+		entryInput("Zuletzt", "2026-10-17", "", ""),
+		entryAt("Andacht", otherID),
+		entryAt("Konzert", otherID),
+		entryAt("Bieranstich", parkID),
+	)
+
+	_, err := newTestEventService(events, hall(), park()).SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+	var validation *ValidationError
+	want := []FieldError{
+		{Field: "timetable[1].locationId", Problem: ProblemNotFound},
+		{Field: "timetable[2].locationId", Problem: ProblemNotFound},
+	}
+	if !errors.As(err, &validation) || !slices.Equal(validation.Fields, want) {
+		t.Errorf("err = %v, want %v", err, want)
+	}
+	if len(events.created) != 0 {
+		t.Errorf("created = %d events, want none", len(events.created))
+	}
+}
+
+func TestSaveEventPassesAnEntryLocationLookupFailureOn(t *testing.T) {
+	locations := newFakeLocationRepo(hall())
+	locations.getErr = errDatabaseDown
+	in := festInput(entryAt("Andacht", parkID))
+	in.LocationID = ""
+	in.Location = &LocationInput{Name: "Paul-Metz-Halle"}
+
+	_, err := newEventServiceOn(newFakeEventRepo(), locations).SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+	if !errors.Is(err, errDatabaseDown) {
+		t.Errorf("err = %v, want %v", err, errDatabaseDown)
+	}
+}
+
+// goneLocationRepo no longer finds the location gone, as if it was deleted
+// after the transaction checked it.
+type goneLocationRepo struct {
+	*fakeLocationRepo
+	gone string
+}
+
+func (r *goneLocationRepo) Get(ctx context.Context, id string) (Location, error) {
+	if id == r.gone {
+		return Location{}, ErrNotFound
+	}
+	return r.fakeLocationRepo.Get(ctx, id)
+}
+
+// TestSaveEventReportsAnEntryLocationDeletedBeforeTheWriteAtTheEntry covers
+// the race in which the own location of an entry disappears between the
+// check and the write.
+func TestSaveEventReportsAnEntryLocationDeletedBeforeTheWriteAtTheEntry(t *testing.T) {
+	events, locations := newFakeEventRepo(), newFakeLocationRepo(hall(), park())
+	events.writeErr = ErrConflict
+	// The transaction still finds the park; the check after it does not.
+	tx := &fakeTx{repos: Repos{Events: events, Locations: locations}}
+	service := NewEventService(tx, events, &goneLocationRepo{fakeLocationRepo: locations, gone: parkID})
+	in := festInput(entryAt("Bieranstich", ""), entryAt("Andacht", parkID))
+
+	_, err := service.SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+	var validation *ValidationError
+	want := []FieldError{{Field: "timetable[1].locationId", Problem: ProblemNotFound}}
+	if !errors.As(err, &validation) || !slices.Equal(validation.Fields, want) {
+		t.Errorf("err = %v, want only %v", err, want)
+	}
+}
+
+// unreachableLocationRepo cannot look up any location.
+type unreachableLocationRepo struct{ *fakeLocationRepo }
+
+func (r unreachableLocationRepo) Get(context.Context, string) (Location, error) {
+	return Location{}, errDatabaseDown
+}
+
+func TestSaveEventPassesAFailedCheckAfterARefusedWriteOn(t *testing.T) {
+	entryOnly := festInput(entryAt("Andacht", parkID))
+	entryOnly.LocationID, entryOnly.Location = "", &LocationInput{Name: "Paul-Metz-Halle"}
+	tests := map[string]EventInput{
+		"event location": festInput(),
+		"entry location": entryOnly,
+	}
+	for name, in := range tests {
+		t.Run(name, func(t *testing.T) {
+			events, locations := newFakeEventRepo(), newFakeLocationRepo(hall(), park())
+			events.writeErr = ErrConflict
+			tx := &fakeTx{repos: Repos{Events: events, Locations: locations}}
+			service := NewEventService(tx, events, unreachableLocationRepo{locations})
+
+			_, err := service.SaveEvent(context.Background(), "", in, RejectDuplicates)
+
+			if !errors.Is(err, errDatabaseDown) {
+				t.Errorf("err = %v, want %v", err, errDatabaseDown)
+			}
+		})
+	}
+}
+
+// TestWithStoredEntryLocationsDropsTheEventLocationInEverySpelling covers a
+// repository that spells an ID differently than the input, in a way letter
+// case does not explain.
+func TestWithStoredEntryLocationsDropsTheEventLocationInEverySpelling(t *testing.T) {
+	entries := []TimetableEntry{
+		{Description: "Bieranstich", LocationID: "0192f0b100007000800000000000ffff"},
+		{Description: "Andacht", LocationID: parkID},
+		{Description: "Frühschoppen"},
+	}
+	stored := map[string]string{"0192f0b100007000800000000000ffff": hallID, parkID: parkID}
+
+	got := withStoredEntryLocations(entries, stored, hallID)
+
+	if got[0].LocationID != "" || got[1].LocationID != parkID || got[2].LocationID != "" {
+		t.Errorf("own locations = %q, %q, %q, want none, %s and none", got[0].LocationID, got[1].LocationID, got[2].LocationID, parkID)
+	}
+	if entries[0].LocationID == "" {
+		t.Error("withStoredEntryLocations changed its argument")
+	}
+}
+
+func TestWriteRefusedErrorIsAConflictAndSaysWhy(t *testing.T) {
+	err := fmt.Errorf("save: %w", &writeRefusedError{err: errDatabaseDown})
+
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), errDatabaseDown.Error()) {
+		t.Errorf("err = %v, want ErrConflict that names the cause", err)
 	}
 }

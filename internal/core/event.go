@@ -198,10 +198,17 @@ func (in EventInput) Canonicalize() EventInput {
 
 // normalized returns the input with every text normalized, keeping the
 // timetable in the order entered, so problems name entries by that order.
+// An entry that refers to the location of the event loses the reference: it
+// takes place there anyway, so "location of the event" has one form only.
 func (in EventInput) normalized() EventInput {
+	eventLocationID := normalizeText(in.LocationID)
 	var timetable []TimetableEntryInput
 	for _, entry := range in.Timetable {
-		timetable = append(timetable, entry.normalized())
+		entry = entry.normalized()
+		if eventLocationID != "" && strings.EqualFold(entry.LocationID, eventLocationID) {
+			entry.LocationID = ""
+		}
+		timetable = append(timetable, entry)
 	}
 	var location *LocationInput
 	if in.Location != nil {
@@ -238,6 +245,7 @@ func EventInputOf(event Event) EventInput {
 			Date:        dateText(entry.Date),
 			StartTime:   timeText(entry.StartTime),
 			EndTime:     timeText(entry.EndTime),
+			LocationID:  entry.LocationID,
 		})
 	}
 	return EventInput{
@@ -257,9 +265,10 @@ func EventInputOf(event Event) EventInput {
 
 // EventFingerprint returns a SHA-256 hash, as hex digits, of what a person
 // or an import entered for a stored event: its canonical input, location ID
-// and sorted timetable included, and its import key. Derived values, the
-// archive mark and the IDs of timetable entries do not count, so the
-// fingerprint changes exactly when a write changed what the event says.
+// and sorted timetable included, with the own location of each entry, and
+// its import key. Derived values, the archive mark and the IDs of timetable
+// entries do not count, so the fingerprint changes exactly when a write
+// changed what the event says.
 func EventFingerprint(event Event) string {
 	in := EventInputOf(event)
 	in.ImportKey = event.ImportKey

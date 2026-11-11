@@ -103,6 +103,18 @@ func (r *memoryEventRepo) CountByLocation(_ context.Context, locationID string) 
 	return count, nil
 }
 
+func (r *memoryEventRepo) CountTimetableEntriesByLocation(_ context.Context, locationID string) (int, error) {
+	count := 0
+	for _, event := range r.events {
+		for _, entry := range event.Timetable {
+			if entry.LocationID == locationID {
+				count++
+			}
+		}
+	}
+	return count, nil
+}
+
 func (r *memoryEventRepo) UpdateDerived(_ context.Context, id string, derived core.Derived) error {
 	event := r.events[id]
 	event.Period, event.TitleKey = derived.Period, derived.TitleKey
@@ -592,6 +604,9 @@ func TestEventPagesAnswerFailuresWithServerErrorAndLog(t *testing.T) {
 		"edit form": func(ts *testServer, e core.Event) *httptest.ResponseRecorder { return ts.get(eventPath(e.ID)) },
 		"form on error": func(ts *testServer, _ core.Event) *httptest.ResponseRecorder {
 			return ts.post(eventsPath, url.Values{})
+		},
+		"timetable entry": func(ts *testServer, _ core.Event) *httptest.ResponseRecorder {
+			return ts.htmxGet(timetableEntryPath)
 		},
 	}
 	for name, request := range locationOptionsRequests {

@@ -18,7 +18,7 @@ const (
 	locationGoneText       = "Dieser Ort ist nicht mehr vorhanden."
 	locationInUseThreeText = "Dieser Ort kann nicht gelöscht werden, weil noch 3 Events auf ihn verweisen."
 	locationInUseOneText   = "Dieser Ort kann nicht gelöscht werden, weil noch 1 Event auf ihn verweist."
-	locationStillUsedText  = "Dieser Ort wird noch von Events verwendet und kann nicht gelöscht werden."
+	locationStillUsedText  = "Dieser Ort wird noch von Events oder Programmpunkten verwendet und kann nicht gelöscht werden."
 	deleteButton           = `<button type="submit">Löschen</button>`
 )
 
@@ -200,6 +200,42 @@ func TestDeleteLocationInUseNamesTheNumberOfEventsAndKeepsTheLocation(t *testing
 	)
 	if _, ok := ts.locations.locations[hall.ID]; !ok {
 		t.Error("a location in use was deleted")
+	}
+}
+
+func TestDeleteLocationUsedOnlyByTimetableEntriesNamesThemAndKeepsTheLocation(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	ts.seedEvent(t, withEntryLocations(festForm(hall.ID, bieranstich, disco, markttag), church.ID, church.ID, ""))
+
+	rec := ts.post(locationDeletePath(church.ID), url.Values{})
+
+	assertStatusCode(t, rec, http.StatusConflict)
+	assertBodyContains(t, rec, "Dieser Ort kann nicht gelöscht werden, weil noch 2 Programmpunkte auf ihn verweisen.")
+	if _, ok := ts.locations.locations[church.ID]; !ok {
+		t.Error("a location in use by timetable entries was deleted")
+	}
+}
+
+func TestLocationInUseMessageNamesEachKindOfUserWithItsNumber(t *testing.T) {
+	tests := map[string]struct {
+		inUse core.LocationInUseError
+		want  string
+	}{
+		"one event":              {core.LocationInUseError{EventCount: 1}, "weil noch 1 Event auf ihn verweist."},
+		"many events":            {core.LocationInUseError{EventCount: 3}, "weil noch 3 Events auf ihn verweisen."},
+		"one timetable entry":    {core.LocationInUseError{TimetableEntryCount: 1}, "weil noch 1 Programmpunkt auf ihn verweist."},
+		"many timetable entries": {core.LocationInUseError{TimetableEntryCount: 4}, "weil noch 4 Programmpunkte auf ihn verweisen."},
+		"one of each":            {core.LocationInUseError{EventCount: 1, TimetableEntryCount: 1}, "weil noch 1 Event und 1 Programmpunkt auf ihn verweisen."},
+		"events and entries":     {core.LocationInUseError{EventCount: 2, TimetableEntryCount: 5}, "weil noch 2 Events und 5 Programmpunkte auf ihn verweisen."},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := locationInUseMessage(tt.inUse); !strings.HasSuffix(got, tt.want) {
+				t.Errorf("message = %q, want it to end with %q", got, tt.want)
+			}
+		})
 	}
 }
 

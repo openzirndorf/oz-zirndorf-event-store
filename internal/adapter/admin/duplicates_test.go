@@ -4,6 +4,7 @@ import (
 	"html"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -210,5 +211,19 @@ func TestFormerAllowValueConfirmsNothing(t *testing.T) {
 	assertStatusCode(t, rec, http.StatusConflict)
 	if len(ts.events.events) != 1 {
 		t.Errorf("%d events stored, want only the seeded market", len(ts.events.events))
+	}
+}
+
+func TestDuplicateWarningKeepsTheOwnLocationOfAnEntrySelected(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	church := ts.seed(t, churchName)
+	ts.seedEvent(t, withEntryLocations(festForm(hall.ID, bieranstich), church.ID))
+
+	rec := ts.post(eventsPath, withEntryLocations(festForm(hall.ID, bieranstich), church.ID))
+
+	assertStatusCode(t, rec, http.StatusConflict)
+	if got := selectedOptionsIn(timetableEntriesOf(rec)[0]); !slices.Equal(got, []string{churchName}) {
+		t.Errorf("entry selects %q, want %q kept", got, churchName)
 	}
 }
