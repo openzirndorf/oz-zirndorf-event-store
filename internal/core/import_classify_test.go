@@ -452,3 +452,197 @@ func TestPreviewImportGivesTheFingerprintOfEveryStoredEventAnEntryCouldWrite(t *
 		t.Errorf("candidate fingerprint = %q, want the one of the stored candidate with its timetable", got)
 	}
 }
+
+// storedMarketWithConcertAt returns the stored market with the concert of
+// marketConcert at its own location locationID, empty for the location of
+// the event.
+func storedMarketWithConcertAt(t *testing.T, locationID string) Event {
+	t.Helper()
+	event := storedMarket(t, marketID, marketKey)
+	event.Timetable = []TimetableEntry{concertAt("1", locationID)}
+	return event
+}
+
+func concertAt(id, locationID string) TimetableEntry {
+	return TimetableEntry{ID: id, Description: "Konzert", Date: kirchweihFriday, StartTime: &LocalTime{Hour: 18}, LocationID: locationID}
+}
+
+// keyedMarketWithConcert returns keyedMarketEntry with marketConcert
+// changed by change.
+func keyedMarketWithConcert(change func(importObject)) importObject {
+	entry := keyedMarketEntry()
+	concert := marketConcert()
+	change(concert)
+	entry["timetable"] = []any{concert}
+	return entry
+}
+
+func TestPreviewImportComparesTheOwnLocationOfTimetableEntries(t *testing.T) {
+	const (
+		atEvent  = "2026-10-16 18:00 Konzert · Ort des Events"
+		atPark   = "2026-10-16 18:00 Konzert · Bibertpark"
+		atChurch = "2026-10-16 18:00 Konzert · Kirche St. Rochus"
+	)
+	keep := func(importObject) {}
+	at := func(location any) func(importObject) {
+		return func(concert importObject) { concert["location"] = location }
+	}
+	tests := map[string]struct {
+		storedAt       string
+		change         func(importObject)
+		wantClass      ImportClass
+		wantChanges    []ImportChange
+		wantLocationID string
+	}{
+		"missing keeps the stored own location": {storedAt: parkID, change: keep, wantClass: ImportClassUnchanged, wantLocationID: parkID},
+		"null removes the stored own location": {
+			storedAt: parkID, change: at(nil), wantClass: ImportClassUpdate,
+			wantChanges: []ImportChange{{Field: EventFieldTimetable, Old: atPark, New: atEvent}},
+		},
+		"other new location": {
+			storedAt: parkID, change: at(churchLocation()), wantClass: ImportClassUpdate,
+			wantChanges: []ImportChange{{Field: EventFieldTimetable, Old: atPark, New: atChurch}},
+		},
+		"own location where the stored entry has none": {
+			change: at(importObject{"name": "BIBERTPARK"}), wantClass: ImportClassUpdate,
+			wantChanges:    []ImportChange{{Field: EventFieldTimetable, Old: atEvent, New: atPark}},
+			wantLocationID: parkID,
+		},
+		"same location as stored":          {storedAt: parkID, change: at(importObject{"name": "bibertpark"}), wantClass: ImportClassUnchanged, wantLocationID: parkID},
+		"location of the event":            {change: at(importObject{"name": "Paul-Metz-Halle"}), wantClass: ImportClassUnchanged, wantLocationID: hallID},
+		"old file":                         {change: keep, wantClass: ImportClassUnchanged},
+		"null without stored own location": {change: at(nil), wantClass: ImportClassUnchanged},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			events := newFakeEventRepo(storedMarketWithConcertAt(t, tt.storedAt))
+
+			preview := previewWithEvents(t, marshalImport(t, importFile(keyedMarketWithConcert(tt.change))), events, hall(), park())
+
+			assertClasses(t, preview, tt.wantClass)
+			got := preview.Entries[0]
+			if !slices.Equal(got.Changes, tt.wantChanges) {
+				t.Errorf("changes = %q, want %q", got.Changes, tt.wantChanges)
+			}
+			if id := got.Input.Timetable[0].LocationID; id != tt.wantLocationID {
+				t.Errorf("own location of the entry = %q, want %q", id, tt.wantLocationID)
+			}
+		})
+	}
+}
+
+func TestPreviewImportPairsEqualTimetableEntriesInOrderToKeepTheirStoredLocations(t *testing.T) {
+	stored := storedMarket(t, marketID, marketKey)
+	dance := TimetableEntry{ID: "3", Description: "Tanz", Date: kirchweihFriday, StartTime: &LocalTime{Hour: 20}, LocationID: parkID}
+	stored.Timetable = []TimetableEntry{concertAt("1", parkID), concertAt("2", ""), dance}
+	entry := keyedMarketEntry()
+	entry["timetable"] = []any{
+		importObject{"description": "Tanz ", "date": "2026-10-16", "startTime": "20:00"},
+		marketConcert(),
+		marketConcert(),
+	}
+
+	preview := previewWithEvents(t, marshalImport(t, importFile(entry)), newFakeEventRepo(stored), hall(), park())
+
+	assertClasses(t, preview, ImportClassUnchanged)
+	var got []string
+	for _, item := range preview.Entries[0].Input.Timetable {
+		got = append(got, item.LocationID)
+	}
+	if want := []string{parkID, parkID, ""}; !slices.Equal(got, want) {
+		t.Errorf("own locations = %q, want %q", got, want)
+	}
+}
+
+func TestPreviewImportTakesATimetableEntryAtTheNewLocationOfTheEventAsAtTheEvent(t *testing.T) {
+	entry := keyedMarketEntry()
+	veste := concertEntry()["location"].(importObject)
+	entry["location"] = veste
+	concert := marketConcert()
+	sameVeste := concertEntry()["location"].(importObject)
+	sameVeste["name"] = "ALTE VESTE"
+	concert["location"] = sameVeste
+	entry["timetable"] = []any{concert}
+
+	preview := previewWithEvents(t, marshalImport(t, importFile(entry)), newFakeEventRepo(storedMarketWithConcertAt(t, "")), hall())
+
+	want := []ImportChange{{Field: EventFieldLocation, Old: "Paul-Metz-Halle", New: "Alte Veste"}}
+	if got := preview.Entries[0].Changes; !slices.Equal(got, want) {
+		t.Errorf("changes = %v, want %v", got, want)
+	}
+	if got := preview.NewLocations; len(got) != 1 || !slices.Equal(got[0].Positions, []int{1}) {
+		t.Errorf("new locations = %+v, want Alte Veste once at position 1", got)
+	}
+}
+
+func TestPreviewImportListsANewTimetableLocationOnceWithEveryPositionBringingIt(t *testing.T) {
+	concert := concertEntry()
+	church := churchLocation()
+	church["name"] = "kirche st. rochus"
+	concert["timetable"].([]any)[0].(importObject)["location"] = church
+	reading := concertEntry()
+	reading["title"], reading["importKey"] = "Lesung an der Veste", "lesung-2026"
+	veste := concertEntry()["location"].(importObject)
+	veste["name"] = "alte veste"
+	reading["timetable"].([]any)[0].(importObject)["location"] = veste
+
+	preview := previewOf(t, marshalImport(t, importFile(marketWithConcertAt(churchLocation()), concert, reading)), hall())
+
+	assertClasses(t, preview, ImportClassNew, ImportClassNew, ImportClassNew)
+	wantLocations := []ImportNewLocation{
+		{Name: "Kirche St. Rochus", Positions: []int{1, 2}},
+		{Name: "Alte Veste", Positions: []int{2, 3}},
+	}
+	if !reflect.DeepEqual(preview.NewLocations, wantLocations) {
+		t.Errorf("new locations = %+v, want %+v", preview.NewLocations, wantLocations)
+	}
+	wantHints := [][]ImportHint{
+		nil,
+		{{Kind: ImportHintNewLocationDiffers, Field: "timetable[0].location.name"}},
+		{{Kind: ImportHintNewLocationDiffers, Field: "timetable[0].location.name"}},
+	}
+	for index, entry := range preview.Entries {
+		if !slices.Equal(entry.Hints, wantHints[index]) || !entry.NewLocation {
+			t.Errorf("entry %d: hints %v, new location %v, want %v and true", entry.Position, entry.Hints, entry.NewLocation, wantHints[index])
+		}
+	}
+}
+
+func TestPreviewImportHintsAtTimetableLocationDetailsThatDifferFromTheStoredOnes(t *testing.T) {
+	location := importObject{"name": "Bibertpark", "address": importObject{"street": "Am Bibertufer 1"}}
+
+	preview := previewOf(t, marshalImport(t, importFile(marketWithConcertAt(location))), hall(), park())
+
+	want := []ImportHint{{Kind: ImportHintLocationDiffers, Field: "timetable[0].location.address.street"}}
+	if got := preview.Entries[0].Hints; !slices.Equal(got, want) {
+		t.Errorf("hints = %v, want %v", got, want)
+	}
+}
+
+func TestWithLocationKeysReturnsAProblemOfTheTimetableAsValidationError(t *testing.T) {
+	imported := importedEvent{location: hall(), entryLocations: []Location{{}}}
+
+	_, err := imported.withLocationKeys([]TimetableEntryInput{{Description: "Konzert", Date: "16.10.2026"}})
+
+	var validation *ValidationError
+	if !errors.As(err, &validation) || !slices.Equal(validation.Fields, []FieldError{{Field: "timetable[0].date", Problem: ProblemInvalidFormat}}) {
+		t.Errorf("err = %v, want *ValidationError at timetable[0].date", err)
+	}
+}
+
+func TestClassifyAgainstStorePassesAProblemOfTheTimetableOn(t *testing.T) {
+	classifier, err := newImportClassifier(context.Background(), Repos{Events: newFakeEventRepo(), Locations: newFakeLocationRepo(hall())})
+	if err != nil {
+		t.Fatalf("newImportClassifier: %v", err)
+	}
+	entry := ImportEntry{Input: EventInput{
+		Location:  &LocationInput{Name: "Paul-Metz-Halle"},
+		Timetable: []TimetableEntryInput{{Description: "Konzert", Date: "16.10.2026"}},
+	}}
+
+	err = classifier.classifyAgainstStore(context.Background(), &entry, importedEvent{location: hall(), entryLocations: []Location{{}}})
+
+	if !errors.Is(err, ErrValidation) {
+		t.Errorf("err = %v, want ErrValidation", err)
+	}
+}

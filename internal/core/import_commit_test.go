@@ -546,16 +546,27 @@ func TestCommitImportRejectsAFileWithTooManyEntries(t *testing.T) {
 }
 
 func TestCommitImportReportsANewLocationNameTakenOnWriteAsConflict(t *testing.T) {
-	events, locations := newFakeEventRepo(), newFakeLocationRepo(hall())
-	service, _ := newCommitService(events, locations)
-	data := marshalImport(t, importFile(concertEntry()))
-	decisions := previewAndDecide(t, service, data)
-	locations.raceWinner = &Location{ID: otherID, NameKey: NormalizeKey("Alte Veste")}
+	tests := map[string]struct {
+		entry importObject
+		name  string
+	}{
+		"location of the event":             {entry: concertEntry(), name: "Alte Veste"},
+		"own location of a timetable entry": {entry: marketWithConcertAt(churchLocation()), name: "Kirche St. Rochus"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			events, locations := newFakeEventRepo(), newFakeLocationRepo(hall())
+			service, _ := newCommitService(events, locations)
+			data := marshalImport(t, importFile(tt.entry))
+			decisions := previewAndDecide(t, service, data)
+			locations.raceWinner = &Location{ID: otherID, NameKey: NormalizeKey(tt.name)}
 
-	_, err := service.CommitImport(context.Background(), data, decisions)
+			_, err := service.CommitImport(context.Background(), data, decisions)
 
-	if !errors.Is(err, ErrConflict) || len(events.created) != 0 {
-		t.Errorf("err = %v, created %d events, want ErrConflict and nothing written", err, len(events.created))
+			if !errors.Is(err, ErrConflict) || len(events.created) != 0 {
+				t.Errorf("err = %v, created %d events, want ErrConflict and nothing written", err, len(events.created))
+			}
+		})
 	}
 }
 
@@ -669,5 +680,114 @@ func TestCommitImportKeepsADecisionWhenACandidateItDoesNotWriteChanged(t *testin
 				t.Error("the changed candidate was written")
 			}
 		})
+	}
+}
+
+func TestCommitImportCreatesANewTimetableLocationOnceForEveryEntryBringingIt(t *testing.T) {
+	events, locations := newFakeEventRepo(), newFakeLocationRepo(hall(), park())
+	service, _ := newCommitService(events, locations)
+	adventMarket := marketWithConcertAt(churchLocation())
+	adventMarket["title"], adventMarket["location"] = "Adventsmarkt", importObject{"name": "Bibertpark"}
+	data := marshalImport(t, importFile(marketWithConcertAt(churchLocation()), adventMarket))
+
+	summary := committedImport(t, service, data, previewAndDecide(t, service, data))
+
+	assertOutcomes(t, summary, ImportOutcomeCreated, ImportOutcomeCreated)
+	if summary.CreatedLocations != 1 || len(locations.created) != 1 || locations.created[0].Name != "Kirche St. Rochus" {
+		t.Fatalf("created locations = %d, %+v, want the church once", summary.CreatedLocations, locations.created)
+	}
+	for index, created := range events.created {
+		if len(created.Timetable) != 1 || created.Timetable[0].LocationID != newID {
+			t.Errorf("timetable of event %d = %+v, want the concert at %s", index, created.Timetable, newID)
+		}
+	}
+}
+
+func TestCommitImportStoresTheOwnLocationOfTimetableEntries(t *testing.T) {
+	tests := map[string]struct {
+		storedAt string
+		change   func(importObject)
+		want     string
+	}{
+		"stored location by name":  {change: func(c importObject) { c["location"] = importObject{"name": "bibertpark"} }, want: parkID},
+		"location of the event":    {storedAt: parkID, change: func(c importObject) { c["location"] = importObject{"name": "Paul-Metz-Halle"} }},
+		"missing keeps the stored": {storedAt: parkID, change: func(importObject) {}, want: parkID},
+		"null removes the stored":  {storedAt: parkID, change: func(c importObject) { c["location"] = nil }},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			events := newFakeEventRepo(storedMarketWithConcertAt(t, tt.storedAt))
+			service, _ := newCommitService(events, newFakeLocationRepo(hall(), park()))
+			entry := keyedMarketWithConcert(tt.change)
+			entry["title"] = "Kirchweihmarkt 2026"
+			data := marshalImport(t, importFile(entry))
+
+			summary := committedImport(t, service, data, previewAndDecide(t, service, data))
+
+			assertOutcomes(t, summary, ImportOutcomeUpdated)
+			if got := events.events[marketID].Timetable; len(got) != 1 || got[0].LocationID != tt.want {
+				t.Errorf("timetable = %+v, want the concert at %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCommitImportDoesNotCreateATimetableLocationThatExistsMeanwhile(t *testing.T) {
+	locations := newFakeLocationRepo(hall())
+	events := newFakeEventRepo()
+	service, _ := newCommitService(events, locations)
+	data := marshalImport(t, importFile(marketWithConcertAt(churchLocation())))
+	decisions := previewAndDecide(t, service, data)
+	church := park()
+	church.ID, church.Name, church.NameKey = otherID, "Kirche St. Rochus", NormalizeKey("Kirche St. Rochus")
+	locations.locations[church.ID] = church
+
+	summary := committedImport(t, service, data, decisions)
+
+	assertOutcomes(t, summary, ImportOutcomeStale)
+	if len(locations.created) != 0 || len(events.created) != 0 {
+		t.Errorf("created %d locations and %d events, want none", len(locations.created), len(events.created))
+	}
+}
+
+func TestCommitImportCreatesANewLocationOnceForAnEventAndATimetableEntryBringingIt(t *testing.T) {
+	events, locations := newFakeEventRepo(), newFakeLocationRepo(hall())
+	service, _ := newCommitService(events, locations)
+	veste := concertEntry()["location"].(importObject)
+	veste["name"] = "alte veste"
+	data := marshalImport(t, importFile(concertEntry(), marketWithConcertAt(veste)))
+
+	summary := committedImport(t, service, data, previewAndDecide(t, service, data))
+
+	assertOutcomes(t, summary, ImportOutcomeCreated, ImportOutcomeCreated)
+	if summary.CreatedLocations != 1 || len(locations.created) != 1 || locations.created[0].Name != "Alte Veste" {
+		t.Fatalf("created locations = %d, %+v, want Alte Veste once", summary.CreatedLocations, locations.created)
+	}
+	if got := events.created[1].Timetable; len(got) != 1 || got[0].LocationID != newID {
+		t.Errorf("timetable of entry 2 = %+v, want the concert at %s", got, newID)
+	}
+}
+
+func TestCommitImportStoresATimetableEntryAtTheNewLocationOfItsEventWithoutOwnLocation(t *testing.T) {
+	events, locations := newFakeEventRepo(storedMarketWithConcertAt(t, "")), newFakeLocationRepo(hall())
+	service, _ := newCommitService(events, locations)
+	entry := keyedMarketEntry()
+	entry["location"] = concertEntry()["location"].(importObject)
+	concert := marketConcert()
+	sameVeste := concertEntry()["location"].(importObject)
+	sameVeste["name"] = "ALTE VESTE"
+	concert["location"] = sameVeste
+	entry["timetable"] = []any{concert}
+	data := marshalImport(t, importFile(entry))
+
+	summary := committedImport(t, service, data, previewAndDecide(t, service, data))
+
+	assertOutcomes(t, summary, ImportOutcomeUpdated)
+	if summary.CreatedLocations != 1 || len(locations.created) != 1 {
+		t.Fatalf("created locations = %d, %+v, want one", summary.CreatedLocations, locations.created)
+	}
+	stored := events.events[marketID]
+	if stored.LocationID != newID || len(stored.Timetable) != 1 || stored.Timetable[0].LocationID != "" {
+		t.Errorf("stored = location %q, timetable %+v, want %s and the concert without own location", stored.LocationID, stored.Timetable, newID)
 	}
 }

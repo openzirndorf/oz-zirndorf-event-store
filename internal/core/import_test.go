@@ -50,6 +50,32 @@ func concertEntry() importObject {
 	}
 }
 
+// churchLocation returns a complete new location for a timetable entry.
+func churchLocation() importObject {
+	return importObject{
+		"name":      "Kirche St. Rochus",
+		"address":   importObject{"street": "Kirchplatz 1", "postalCode": "90513", "city": "Zirndorf"},
+		"latitude":  49.4449,
+		"longitude": 10.9561,
+		"precision": "building",
+	}
+}
+
+// marketConcert returns a timetable entry within marketEntry, without
+// location; tests add one.
+func marketConcert() importObject {
+	return importObject{"description": "Konzert", "date": "2026-10-16", "startTime": "18:00"}
+}
+
+// marketWithConcertAt returns marketEntry with marketConcert at location.
+func marketWithConcertAt(location any) importObject {
+	entry := marketEntry()
+	concert := marketConcert()
+	concert["location"] = location
+	entry["timetable"] = []any{concert}
+	return entry
+}
+
 func importFile(entries ...any) importObject {
 	return importObject{"formatVersion": ImportFormatVersion, "events": entries}
 }
@@ -326,6 +352,31 @@ func TestPreviewImportReportsProblemsPerEntry(t *testing.T) {
 			},
 			want: []FieldError{{Field: "timetable[1].startTime", Problem: ProblemOutsideEvent}},
 		},
+		"new timetable location without address, coordinates and precision": {
+			change: func(e importObject) {
+				e["timetable"] = marketWithConcertAt(importObject{"name": "Kirche St. Rochus"})["timetable"]
+			},
+			want: []FieldError{
+				{Field: "timetable[0].location.address.street", Problem: ProblemMissing},
+				{Field: "timetable[0].location.address.postalCode", Problem: ProblemMissing},
+				{Field: "timetable[0].location.address.city", Problem: ProblemMissing},
+				{Field: "timetable[0].location.latitude", Problem: ProblemMissing},
+				{Field: "timetable[0].location.longitude", Problem: ProblemMissing},
+				{Field: "timetable[0].location.precision", Problem: ProblemMissing},
+			},
+		},
+		"timetable location without name": {
+			change: func(e importObject) { e["timetable"] = marketWithConcertAt(importObject{"name": " "})["timetable"] },
+			want:   []FieldError{{Field: "timetable[0].location.name", Problem: ProblemMissing}},
+		},
+		"new timetable location with four-digit postal code": {
+			change: func(e importObject) {
+				location := churchLocation()
+				location["address"].(importObject)["postalCode"] = "9051"
+				e["timetable"] = marketWithConcertAt(location)["timetable"]
+			},
+			want: []FieldError{{Field: "timetable[0].location.address.postalCode", Problem: ProblemInvalidFormat}},
+		},
 		"import key too long": {
 			change: func(e importObject) { e["importKey"] = overLimit(MaxImportKeyLength) },
 			want:   []FieldError{{Field: EventFieldImportKey, Problem: ProblemTooLong, Limit: MaxImportKeyLength}},
@@ -424,6 +475,34 @@ func TestPreviewImportReportsJSONTypeErrorsOnlyAtTheirField(t *testing.T) {
 				e["timetable"] = []any{importObject{"description": "Musik", "date": "2026-10-16"}, "Abbau"}
 			},
 			want: []FieldError{{Field: "timetable[1]", Problem: ProblemInvalidFormat}},
+		},
+		"timetable location as text": {
+			change: func(e importObject) { e["timetable"] = marketWithConcertAt("Kirche")["timetable"] },
+			want:   []FieldError{{Field: "timetable[0].location", Problem: ProblemInvalidFormat}},
+		},
+		"timetable location address as list": {
+			change: func(e importObject) {
+				location := churchLocation()
+				location["address"] = []any{"Kirchplatz 1"}
+				e["timetable"] = marketWithConcertAt(location)["timetable"]
+			},
+			want: []FieldError{{Field: "timetable[0].location.address", Problem: ProblemInvalidFormat}},
+		},
+		"timetable location latitude as text": {
+			change: func(e importObject) {
+				location := churchLocation()
+				location["latitude"] = "49,44"
+				e["timetable"] = marketWithConcertAt(location)["timetable"]
+			},
+			want: []FieldError{{Field: "timetable[0].location.latitude", Problem: ProblemInvalidFormat}},
+		},
+		"timetable location city as number": {
+			change: func(e importObject) {
+				location := churchLocation()
+				location["address"].(importObject)["city"] = 1
+				e["timetable"] = marketWithConcertAt(location)["timetable"]
+			},
+			want: []FieldError{{Field: "timetable[0].location.address.city", Problem: ProblemInvalidFormat}},
 		},
 		"timetable date as number": {
 			change: func(e importObject) {
@@ -576,6 +655,53 @@ func TestPreviewImportRejectsALocationNameOfSeveralStoredLocations(t *testing.T)
 	}
 	if !preview.Entries[1].IsValid() {
 		t.Errorf("the next entry has problems %v", preview.Entries[1].Problems)
+	}
+}
+
+func TestPreviewImportRejectsATimetableLocationNameOfSeveralStoredLocations(t *testing.T) {
+	twin := Location{ID: otherID, Name: "Bibertpark ", NameKey: "bibertpark-2", Precision: PrecisionArea}
+
+	preview := previewOf(t, marshalImport(t, importFile(marketWithConcertAt(importObject{"name": "Bibertpark"}))), hall(), park(), twin)
+
+	want := []FieldError{{Field: "timetable[0].location.name", Problem: ProblemAmbiguous}}
+	if got := preview.Entries[0]; got.Class != ImportClassError || !slices.Equal(got.Problems, want) {
+		t.Errorf("entry = %s with problems %v, want error with %v", got.Class, got.Problems, want)
+	}
+}
+
+func TestPreviewImportAssignsATimetableEntryToTheStoredLocationOfItsName(t *testing.T) {
+	preview := previewOf(t, marshalImport(t, importFile(marketWithConcertAt(importObject{"name": " BIBERTPARK"}))), hall(), park())
+
+	got := preview.Entries[0]
+	if got.Class != ImportClassNew || got.NewLocation || preview.NewLocations != nil {
+		t.Errorf("entry = %+v, new locations %v, want new without new location", got, preview.NewLocations)
+	}
+	if entry := got.Input.Timetable[0]; entry.LocationID != parkID || entry.AtEventLocation {
+		t.Errorf("timetable entry = %+v, want at %s", entry, parkID)
+	}
+}
+
+func TestPreviewImportReadsANullTimetableLocationAsTheLocationOfTheEvent(t *testing.T) {
+	tests := map[string]struct {
+		entry importObject
+		want  bool
+	}{
+		"null":    {entry: marketWithConcertAt(nil), want: true},
+		"missing": {entry: importObject{"timetable": []any{marketConcert()}}, want: false},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			entry := marketEntry()
+			entry["timetable"] = tt.entry["timetable"]
+
+			preview := previewOf(t, marshalImport(t, importFile(entry)), hall())
+
+			got := preview.Entries[0].Input.Timetable[0]
+			if !preview.Entries[0].IsValid() || got.Location != nil || got.LocationID != "" || got.AtEventLocation != tt.want {
+				t.Errorf("timetable entry = %+v with problems %v, want valid without own location, at event location %v",
+					got, preview.Entries[0].Problems, tt.want)
+			}
+		})
 	}
 }
 

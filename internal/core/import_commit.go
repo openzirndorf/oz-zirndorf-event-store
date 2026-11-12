@@ -314,8 +314,9 @@ func hasOtherImportKey(target Event, entry ImportEntry) bool {
 // new location the first time a written entry needs it.
 type importWriter struct {
 	classified classifiedImport
-	// firstLocations holds, by name key, the location of the first valid
-	// entry that brings it as new; its details count.
+	// firstLocations holds, by name key, the first new location of that
+	// name a valid entry brings, for its event or a timetable entry; its
+	// details count.
 	firstLocations map[string]*LocationInput
 	// createdLocations holds the IDs of the created locations by name key.
 	createdLocations map[string]string
@@ -328,9 +329,13 @@ func newImportWriter(classified classifiedImport) *importWriter {
 		createdLocations: make(map[string]string),
 	}
 	for index, entry := range classified.entries {
-		nameKey := classified.imported[index].location.NameKey
-		if _, seen := writer.firstLocations[nameKey]; entry.NewLocation && !seen {
-			writer.firstLocations[nameKey] = entry.Input.Location
+		if !entry.NewLocation {
+			continue
+		}
+		for _, brought := range newLocationsOf(entry, classified.imported[index]) {
+			if _, seen := writer.firstLocations[brought.location.NameKey]; !seen {
+				writer.firstLocations[brought.location.NameKey] = brought.input
+			}
 		}
 	}
 	return writer
@@ -341,12 +346,16 @@ func newImportWriter(classified classifiedImport) *importWriter {
 // the written event. A given import key is stored with it.
 func (w *importWriter) write(ctx context.Context, repos Repos, index int, targetID string) (string, error) {
 	entry := w.classified.entries[index]
-	locationID, err := w.locationID(ctx, repos, w.classified.imported[index])
+	imported := w.classified.imported[index]
+	locationID, err := w.locationID(ctx, repos, imported.location)
 	if err != nil {
 		return "", err
 	}
 	in := entry.Input
 	in.Location, in.LocationID = nil, locationID
+	if in.Timetable, err = w.timetableWithLocationIDs(ctx, repos, in.Timetable, imported.entryLocations); err != nil {
+		return "", err
+	}
 	saved, err := saveEvent(ctx, repos, targetID, in, AllowDuplicates)
 	if err != nil {
 		return "", fmt.Errorf("write import entry %d: %w", entry.Position, err)
@@ -359,13 +368,33 @@ func (w *importWriter) write(ctx context.Context, repos Repos, index int, target
 	return saved.ID, nil
 }
 
-// locationID returns the ID of the location of imported, creating a new
-// location the first time an entry needs it.
-func (w *importWriter) locationID(ctx context.Context, repos Repos, imported importedEvent) (string, error) {
-	if !imported.isNewLocation() {
-		return imported.location.ID, nil
+// timetableWithLocationIDs returns a copy of timetable in which every
+// entry that brings its own location refers to it by ID, a new one created
+// by locationID; the others keep the LocationID the classification gave
+// them. own holds the brought locations by the index of the entry.
+func (w *importWriter) timetableWithLocationIDs(ctx context.Context, repos Repos, timetable []TimetableEntryInput, own []Location) ([]TimetableEntryInput, error) {
+	resolved := slices.Clone(timetable)
+	for index := range resolved {
+		resolved[index].Location = nil
+		if own[index].Name == "" {
+			continue
+		}
+		id, err := w.locationID(ctx, repos, own[index])
+		if err != nil {
+			return nil, err
+		}
+		resolved[index].LocationID = id
 	}
-	nameKey := imported.location.NameKey
+	return resolved, nil
+}
+
+// locationID returns the ID of location, creating a new location the first
+// time an entry needs it.
+func (w *importWriter) locationID(ctx context.Context, repos Repos, location Location) (string, error) {
+	if location.ID != "" {
+		return location.ID, nil
+	}
+	nameKey := location.NameKey
 	if id, created := w.createdLocations[nameKey]; created {
 		return id, nil
 	}

@@ -185,6 +185,25 @@ func TestImportNamesAControlCharacterAndAnAmbiguousLocation(t *testing.T) {
 	}
 }
 
+func TestImportNamesAProblemOfTheOwnLocationOfATimetableEntry(t *testing.T) {
+	ts := newTestServer(t)
+	ts.seed(t, hallName)
+	file := `{"formatVersion": 1, "events": [
+	  {"title": "Kirchweihmarkt", "type": "market", "location": {"name": "Paul-Metz-Halle"}, "startDate": "2026-10-16",
+	   "source": {"description": "Plakat"},
+	   "timetable": [{"description": "Konzert", "date": "2026-10-16", "startTime": "18:00",
+	                  "location": {"name": "Kirche St. Rochus", "address": {"street": "Kirchplatz 1", "postalCode": "90513", "city": "Zirndorf"},
+	                               "latitude": 49.4449, "precision": "building"}}]}]}`
+
+	rec := ts.postImport(t, importFileField, file)
+
+	assertStatusCode(t, rec, http.StatusOK)
+	want := []string{"1", "Kirchweihmarkt", importClassLabels[core.ImportClassError], "Programmpunkt 1, Ort: Länge: Bitte eine Länge angeben."}
+	if got := importRowTexts(rec, "1"); !slices.Equal(got, want) {
+		t.Errorf("row 1 = %q, want %q", got, want)
+	}
+}
+
 func TestImportLabelsEveryFieldOfTheFormatInGerman(t *testing.T) {
 	fields := []string{
 		core.EventFieldTitle, core.EventFieldType, core.EventFieldLocation, core.EventFieldStartDate,
@@ -204,6 +223,18 @@ func TestImportLabelsEveryFieldOfTheFormatInGerman(t *testing.T) {
 	}
 	if got := importFieldLabel(core.EventFieldTimetable + "[3]"); got != "Programmpunkt 4" {
 		t.Errorf("label = %q", got)
+	}
+	entryLocationLabels := map[string]string{
+		core.TimetableField(1, core.TimetableFieldLocation):                         "Programmpunkt 2, Ort",
+		core.TimetableField(1, core.TimetableFieldLocation) + ".name":               "Programmpunkt 2, Ort: Ortsname",
+		core.TimetableField(0, core.TimetableFieldLocation) + ".address":            "Programmpunkt 1, Ort: Adresse",
+		core.TimetableField(0, core.TimetableFieldLocation) + ".address.postalCode": "Programmpunkt 1, Ort: PLZ",
+		core.TimetableField(0, core.TimetableFieldLocation) + ".latitude":           "Programmpunkt 1, Ort: Breite",
+	}
+	for field, want := range entryLocationLabels {
+		if got := importFieldLabel(field); got != want {
+			t.Errorf("label of %q = %q, want %q", field, got, want)
+		}
 	}
 	for _, unknown := range []string{"unbekannt.feld", "timetable[3", "timetable[drei]"} {
 		if got := importFieldLabel(unknown); got != unknown {
@@ -227,6 +258,12 @@ func TestImportMessagesFollowTheFormsOfEventAndLocation(t *testing.T) {
 		{Field: core.EventFieldTitle, Problem: core.ProblemControlCharacter}:                            msgImportControlCharacter,
 		{Field: "location.address.postalCode", Problem: core.ProblemControlCharacter}:                   msgImportControlCharacter,
 		{Field: core.TimetableField(0, core.TimetableFieldDate), Problem: core.ProblemControlCharacter}: msgImportControlCharacter,
+		{Field: "timetable[2].location.name", Problem: core.ProblemAmbiguous}:                           msgImportAmbiguousLocation,
+		{Field: "timetable[2].location.name", Problem: core.ProblemMissing}:                             "Bitte einen Namen angeben.",
+		{Field: "timetable[0].location.address.postalCode", Problem: core.ProblemInvalidFormat}:         "Die PLZ muss aus genau fünf Ziffern bestehen.",
+		{Field: "timetable[0].location.longitude", Problem: core.ProblemMissing}:                        "Bitte eine Länge angeben.",
+		{Field: "timetable[0].location.address", Problem: core.ProblemInvalidFormat}:                    msgImportWrongType,
+		{Field: "timetable[0].location", Problem: core.ProblemInvalidFormat}:                            msgImportWrongType,
 	}
 	for field, want := range tests {
 		if got := importProblemMessage(field); got != want {

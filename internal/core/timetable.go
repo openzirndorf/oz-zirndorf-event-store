@@ -13,7 +13,7 @@ import (
 // EventFieldTimetable is the field name of an event's timetable. The
 // fields of one entry are named by TimetableField. The OpenAPI spec
 // (api/v1/openapi.yaml) defines them in the schemas Event, EventInput and
-// TimetableEntry; these constants mirror it (AD-9).
+// TimetableEntry/TimetableEntryInput; these constants mirror it (AD-9).
 const EventFieldTimetable = "timetable"
 
 // Field names within one timetable entry, used with TimetableField.
@@ -22,6 +22,10 @@ const (
 	TimetableFieldDate        = "date"
 	TimetableFieldStartTime   = "startTime"
 	TimetableFieldEndTime     = "endTime"
+	// TimetableFieldLocation is the own location of an entry in the spec:
+	// the complete location when reading, a brought-along location when
+	// importing, null for the location of the event.
+	TimetableFieldLocation = "location"
 	// TimetableFieldLocationID is internal to the admin form, which refers to
 	// a stored location by its ID. The public spec names the own location of
 	// an entry location and never gives out IDs (AD-14).
@@ -63,6 +67,14 @@ type TimetableEntryInput struct {
 	// LocationID refers to a stored location by ID; empty means the location
 	// of the event.
 	LocationID string
+	// Location is the own location an import entry brings along by name,
+	// nil when it brings none; the admin never sets it.
+	Location *LocationInput
+	// AtEventLocation is set by an import entry that gives location: null.
+	// It takes place at the location of the event even where the stored
+	// entry it matches has an own location; without Location and without
+	// this mark, a re-import keeps that own location.
+	AtEventLocation bool
 }
 
 // TimetableField returns the field name of field within the timetable entry
@@ -94,12 +106,19 @@ func SplitTimetableField(name string) (index int, field string, ok bool) {
 // normalized returns the entry with every text normalized by
 // normalizeText.
 func (in TimetableEntryInput) normalized() TimetableEntryInput {
+	var location *LocationInput
+	if in.Location != nil {
+		normalizedLocation := in.Location.normalized()
+		location = &normalizedLocation
+	}
 	return TimetableEntryInput{
-		Description: normalizeText(in.Description),
-		Date:        normalizeText(in.Date),
-		StartTime:   normalizeText(in.StartTime),
-		EndTime:     normalizeText(in.EndTime),
-		LocationID:  normalizeText(in.LocationID),
+		Description:     normalizeText(in.Description),
+		Date:            normalizeText(in.Date),
+		StartTime:       normalizeText(in.StartTime),
+		EndTime:         normalizeText(in.EndTime),
+		LocationID:      normalizeText(in.LocationID),
+		Location:        location,
+		AtEventLocation: in.AtEventLocation,
 	}
 }
 

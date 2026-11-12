@@ -109,6 +109,21 @@ func hall() core.Location {
 	}
 }
 
+const churchID = "0192f0b1-0000-7000-8000-000000000003"
+
+// church is the own location of a timetable entry, with every value set.
+func church() core.Location {
+	return core.Location{
+		ID: churchID, Name: "Kirche St. Rochus", NameKey: "kirche st. rochus",
+		Street: "Kirchenplatz 1", PostalCode: "90513", City: "Zirndorf",
+		Latitude: 49.4433, Longitude: 10.9552, Precision: core.PrecisionBuilding, Note: "Seiteneingang",
+	}
+}
+
+// churchJSON is church in the read form.
+const churchJSON = `{"address":{"city":"Zirndorf","postalCode":"90513","street":"Kirchenplatz 1"},` +
+	`"latitude":49.4433,"longitude":10.9552,"name":"Kirche St. Rochus","note":"Seiteneingang","precision":"building"}`
+
 func localTime(hour, minute int) *core.LocalTime { return &core.LocalTime{Hour: hour, Minute: minute} }
 
 func december(day int) core.LocalDate {
@@ -462,13 +477,14 @@ func fullListedEvent() core.ListedEvent {
 				End:   time.Date(2026, time.December, 24, 21, 0, 0, 0, berlin),
 			},
 			Timetable: []core.TimetableEntry{
-				{ID: "0192f0b1-0000-7000-8000-000000000201", Description: "Einlass", Date: december(24), StartTime: localTime(19, 0)},
+				{ID: "0192f0b1-0000-7000-8000-000000000201", Description: "Einlass", Date: december(24), StartTime: localTime(19, 0), LocationID: churchID},
 				{ID: "0192f0b1-0000-7000-8000-000000000202", Description: "Zugabe", Date: december(24), StartTime: localTime(20, 45), EndTime: localTime(21, 0)},
 			},
 		},
-		Location:       hall(),
-		StartPrecision: core.TimePrecisionExact,
-		EndPrecision:   core.TimePrecisionExact,
+		Location:           hall(),
+		TimetableLocations: map[string]core.Location{churchID: church()},
+		StartPrecision:     core.TimePrecisionExact,
+		EndPrecision:       core.TimePrecisionExact,
 	}
 }
 
@@ -531,7 +547,11 @@ func TestListEventsDeliversExactlyTheReadForm(t *testing.T) {
 		assertKeys(t, "address", location["address"], "street", "postalCode", "city")
 		assertKeys(t, "source", event["source"], "description", "url")
 		for _, entry := range event["timetable"].([]any) {
-			assertKeys(t, "timetable entry", entry, "description", "date", "startTime", "endTime")
+			assertKeys(t, "timetable entry", entry, "description", "date", "startTime", "endTime", "location")
+			if own := entry.(map[string]any)["location"]; own != nil {
+				assertKeys(t, "timetable location", own, "name", "address", "latitude", "longitude", "precision", "note")
+				assertKeys(t, "timetable address", own.(map[string]any)["address"], "street", "postalCode", "city")
+			}
 		}
 	}
 }
@@ -549,7 +569,7 @@ func TestListEventsGivesOutNoInternalValues(t *testing.T) {
 			t.Errorf("response contains the internal key %q", key)
 		}
 	}
-	for _, value := range []string{hallID, fullListedEvent().ID, fullListedEvent().Timetable[0].ID} {
+	for _, value := range []string{hallID, churchID, fullListedEvent().ID, fullListedEvent().Timetable[0].ID} {
 		if strings.Contains(rec.Body.String(), value) {
 			t.Errorf("response contains the ID %s", value)
 		}
@@ -583,8 +603,8 @@ func TestListEventsFormatsDatesTimesAndInstants(t *testing.T) {
 		`"latitude":49.4424,"longitude":10.9539,"name":"Paul-Metz-Halle","note":"Eingang über den Hof","precision":"building"},` +
 		`"note":"Eintritt frei","source":{"description":"Plakat","url":"https://www.zirndorf.de/konzert"},` +
 		`"startDate":"2026-12-24","startPrecision":"exact","startTime":"19:30",` +
-		`"timetable":[{"date":"2026-12-24","description":"Einlass","endTime":null,"startTime":"19:00"},` +
-		`{"date":"2026-12-24","description":"Zugabe","endTime":"21:00","startTime":"20:45"}],` +
+		`"timetable":[{"date":"2026-12-24","description":"Einlass","endTime":null,"location":` + churchJSON + `,"startTime":"19:00"},` +
+		`{"date":"2026-12-24","description":"Zugabe","endTime":"21:00","location":null,"startTime":"20:45"}],` +
 		`"title":"Weihnachtskonzert","type":"culture"}]}`
 	assertSameJSON(t, rec.Body.Bytes(), want)
 }

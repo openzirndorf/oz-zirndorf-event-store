@@ -147,7 +147,7 @@ func eventOf(event core.ListedEvent) Event {
 		EndPrecision:   optionalPrecisionOf(event.EndPrecision),
 		Source:         Source{Description: event.Source.Description, Url: optionalText(event.Source.URL)},
 		Note:           optionalText(event.Note),
-		Timetable:      timetableOf(event.Timetable),
+		Timetable:      timetableOf(event),
 		EffectiveStart: event.Period.Start,
 		EffectiveEnd:   event.Period.End,
 	}
@@ -168,19 +168,31 @@ func eventLocationOf(location core.Location) EventLocation {
 	}
 }
 
-// timetableOf maps the entries in the order of the core; no timetable is
-// an empty list, never null.
-func timetableOf(entries []core.TimetableEntry) []TimetableEntry {
-	timetable := make([]TimetableEntry, 0, len(entries))
-	for _, entry := range entries {
+// timetableOf maps the entries of event in the order of the core; no
+// timetable is an empty list, never null.
+func timetableOf(event core.ListedEvent) []TimetableEntry {
+	timetable := make([]TimetableEntry, 0, len(event.Timetable))
+	for _, entry := range event.Timetable {
 		timetable = append(timetable, TimetableEntry{
 			Description: entry.Description,
 			Date:        dateOf(entry.Date),
 			StartTime:   timeOf(entry.StartTime),
 			EndTime:     timeOf(entry.EndTime),
+			Location:    entryLocationOf(event, entry),
 		})
 	}
 	return timetable
+}
+
+// entryLocationOf gives the own location of entry in full, or null when
+// the entry takes place at the location of the event.
+func entryLocationOf(event core.ListedEvent, entry core.TimetableEntry) *EventLocation {
+	location, own := event.EntryLocation(entry)
+	if !own {
+		return nil
+	}
+	value := eventLocationOf(location)
+	return &value
 }
 
 // dateOf carries a local date in the generated date type, which writes

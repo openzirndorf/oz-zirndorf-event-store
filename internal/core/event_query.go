@@ -58,18 +58,30 @@ type Overlap struct {
 	Hi *time.Time
 }
 
-// ListedEvent is an event of a public list, completed with its location
-// and what the core derives from it. Its period is in Europe/Berlin and
-// its timetable sorted chronologically.
+// ListedEvent is an event of a public list, completed with its location,
+// the own locations of its timetable entries and what the core derives
+// from it. Its period is in Europe/Berlin and its timetable sorted
+// chronologically.
 type ListedEvent struct {
 	Event
 	Location Location
+	// TimetableLocations holds the own locations of the timetable entries
+	// by location ID. Read them with EntryLocation.
+	TimetableLocations map[string]Location
 	// StartPrecision and EndPrecision are derived from Times; EndPrecision
 	// is empty when the event has no end date.
 	StartPrecision TimePrecision
 	EndPrecision   TimePrecision
 	// Archived is Period.IsOver at the time of the query (AD-16).
 	Archived bool
+}
+
+// EntryLocation returns the own location of entry, a timetable entry of
+// the event; false means the entry takes place at the location of the
+// event.
+func (e ListedEvent) EntryLocation(entry TimetableEntry) (Location, bool) {
+	location, own := e.TimetableLocations[entry.LocationID]
+	return location, own
 }
 
 // filterBound is the value of from or to as the instants where it starts
@@ -151,8 +163,8 @@ func archivedEvent(event ListedEvent) bool { return event.Archived }
 
 // listMatchingEvents asks the repository for the overlapping events and
 // returns those of the allowed types that query.keep keeps, completed with
-// their locations, in no particular order. Events marked for review are
-// left out.
+// their locations and those of their timetable entries, in no particular
+// order. Events marked for review are left out.
 func (s *EventService) listMatchingEvents(ctx context.Context, query eventQuery) ([]ListedEvent, error) {
 	// Taken before reading, so a save clearing a mark meanwhile cannot let
 	// the row from before the save through.
@@ -175,16 +187,45 @@ func (s *EventService) listMatchingEvents(ctx context.Context, query eventQuery)
 		if !ok {
 			return nil, fmt.Errorf("location %s of event %s: %w", event.LocationID, event.ID, ErrNotFound)
 		}
+		entryLocations, err := timetableLocationsOf(event, locations)
+		if err != nil {
+			return nil, err
+		}
 		// Stored values that failed recomputation may be wrong, so the
 		// event stays hidden until saved again (ENT-5).
 		if _, inReview := marked[event.ID]; inReview {
 			continue
 		}
-		if completed := listedEventOf(event, location, frozenClock(query.now)); query.keep(completed) {
+		if completed := listedEventOf(event, eventLocations{event: location, timetable: entryLocations}, frozenClock(query.now)); query.keep(completed) {
 			listed = append(listed, completed)
 		}
 	}
 	return listed, nil
+}
+
+// timetableLocationsOf returns the own locations of the timetable entries
+// of event by location ID, taken from locations. An own location missing
+// there yields ErrNotFound, like the missing location of an event.
+func timetableLocationsOf(event Event, locations map[string]Location) (map[string]Location, error) {
+	own := map[string]Location{}
+	for _, entry := range event.Timetable {
+		if entry.LocationID == "" {
+			continue
+		}
+		location, ok := locations[entry.LocationID]
+		if !ok {
+			return nil, fmt.Errorf("location %s of timetable entry %s of event %s: %w", entry.LocationID, entry.ID, event.ID, ErrNotFound)
+		}
+		own[entry.LocationID] = location
+	}
+	return own, nil
+}
+
+// eventLocations are the location of an event and the own locations of its
+// timetable entries by location ID.
+type eventLocations struct {
+	event     Location
+	timetable map[string]Location
 }
 
 // normalizeActiveFilter turns the filter into the overlap of active events
@@ -368,17 +409,18 @@ func parseEventTypeFilter(texts []string) (eventTypeSet, FieldProblem) {
 	return types, ""
 }
 
-// listedEventOf completes event with its location, sorted timetable,
+// listedEventOf completes event with its locations, sorted timetable,
 // period in Europe/Berlin, precisions and archive status at now.
-func listedEventOf(event Event, location Location, now Clock) ListedEvent {
+func listedEventOf(event Event, locations eventLocations, now Clock) ListedEvent {
 	event.Timetable = sortedTimetable(event.Timetable)
 	event.Period = Period{Start: event.Period.Start.In(berlin), End: event.Period.End.In(berlin)}
 	return ListedEvent{
-		Event:          event,
-		Location:       location,
-		StartPrecision: event.Times.StartPrecision(),
-		EndPrecision:   event.Times.EndPrecision(),
-		Archived:       event.Period.IsOver(now),
+		Event:              event,
+		Location:           locations.event,
+		TimetableLocations: locations.timetable,
+		StartPrecision:     event.Times.StartPrecision(),
+		EndPrecision:       event.Times.EndPrecision(),
+		Archived:           event.Period.IsOver(now),
 	}
 }
 
