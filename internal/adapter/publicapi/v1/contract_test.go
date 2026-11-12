@@ -47,9 +47,15 @@ var adminOnlyFields = []string{"EventFieldLocationID", "TimetableFieldLocationID
 var fieldSchemas = map[string]string{
 	eventFieldPrefix:     "EventInput",
 	locationFieldPrefix:  "EventInputLocation",
-	timetableFieldPrefix: "TimetableEntry",
+	timetableFieldPrefix: "TimetableEntryInput",
 	sourceFieldPrefix:    "Source",
 }
+
+// Generated types of a timetable entry in the read and the write form.
+const (
+	timetableEntryReadSchema  = "TimetableEntry"
+	timetableEntryWriteSchema = "TimetableEntryInput"
+)
 
 // locationAddressPrefix is where the location schema nests the address
 // parts, whose core constants name them without it.
@@ -264,6 +270,48 @@ func TestEventInputHasNoIdentifiers(t *testing.T) {
 	}
 }
 
+// A timetable entry carries the same fields in the read and the write
+// form (AD-14); only the location differs in its schema.
+func TestTimetableEntryHasTheSameFieldsInReadAndWriteForm(t *testing.T) {
+	structs := structFields(parseGoFile(t, generatedFile), jsonTagKey)
+
+	read, write := topLevelNames(structs, timetableEntryReadSchema), topLevelNames(structs, timetableEntryWriteSchema)
+
+	if len(read) == 0 || !slices.Equal(read, write) {
+		t.Errorf("%s fields = %v, %s fields = %v, want the same", timetableEntryReadSchema, read, timetableEntryWriteSchema, write)
+	}
+	if !slices.Contains(write, core.TimetableFieldLocation) {
+		t.Errorf("%s fields = %v, want %s", timetableEntryWriteSchema, write, core.TimetableFieldLocation)
+	}
+	wantLocationTypes := map[string]string{timetableEntryReadSchema: "EventLocation", timetableEntryWriteSchema: "EventInputLocation"}
+	for schema, want := range wantLocationTypes {
+		if got := fieldTypeName(structs, schema, core.TimetableFieldLocation); got != want {
+			t.Errorf("%s.%s refers to %q, want %q", schema, core.TimetableFieldLocation, got, want)
+		}
+	}
+}
+
+// fieldTypeName returns the type the field name of the struct root refers
+// to, or "" when root has no such field.
+func fieldTypeName(structs map[string][]structField, root, name string) string {
+	for _, field := range structs[root] {
+		if field.name == name {
+			return field.typeName
+		}
+	}
+	return ""
+}
+
+// topLevelNames returns the sorted names of the fields of the struct root.
+func topLevelNames(structs map[string][]structField, root string) []string {
+	var names []string
+	for _, field := range structs[root] {
+		names = append(names, field.name)
+	}
+	slices.Sort(names)
+	return names
+}
+
 // The field comparison is only meaningful if the walkers find nested
 // fields and the constants; a fixture proves it.
 func TestFieldWalkersFindNestedFieldsAndConstants(t *testing.T) {
@@ -287,17 +335,17 @@ func TestFieldWalkersFindNestedFieldsAndConstants(t *testing.T) {
 // specLimits names, per path in openapi.yaml, the core constant that
 // mirrors the limit (ENT-24).
 var specLimits = map[string]int{
-	"components.schemas.EventInput.properties.title.maxLength":           core.MaxTitleLength,
-	"components.schemas.EventInput.properties.note.maxLength":            core.MaxNoteLength,
-	"components.schemas.EventInput.properties.timetable.maxItems":        core.MaxTimetableEntries,
-	"components.schemas.EventInput.properties.importKey.maxLength":       core.MaxImportKeyLength,
-	"components.schemas.Source.properties.description.maxLength":         core.MaxSourceDescriptionLength,
-	"components.schemas.Source.properties.url.maxLength":                 core.MaxSourceURLLength,
-	"components.schemas.TimetableEntry.properties.description.maxLength": core.MaxTimetableDescriptionLength,
-	"components.schemas.EventInputLocation.properties.name.maxLength":    core.MaxLocationNameLength,
-	"components.schemas.EventInputLocation.properties.note.maxLength":    core.MaxLocationNoteLength,
-	"components.schemas.Address.properties.street.maxLength":             core.MaxStreetLength,
-	"components.schemas.Address.properties.city.maxLength":               core.MaxCityLength,
+	"components.schemas.EventInput.properties.title.maxLength":                core.MaxTitleLength,
+	"components.schemas.EventInput.properties.note.maxLength":                 core.MaxNoteLength,
+	"components.schemas.EventInput.properties.timetable.maxItems":             core.MaxTimetableEntries,
+	"components.schemas.EventInput.properties.importKey.maxLength":            core.MaxImportKeyLength,
+	"components.schemas.Source.properties.description.maxLength":              core.MaxSourceDescriptionLength,
+	"components.schemas.Source.properties.url.maxLength":                      core.MaxSourceURLLength,
+	"components.schemas.TimetableEntryInput.properties.description.maxLength": core.MaxTimetableDescriptionLength,
+	"components.schemas.EventInputLocation.properties.name.maxLength":         core.MaxLocationNameLength,
+	"components.schemas.EventInputLocation.properties.note.maxLength":         core.MaxLocationNoteLength,
+	"components.schemas.Address.properties.street.maxLength":                  core.MaxStreetLength,
+	"components.schemas.Address.properties.city.maxLength":                    core.MaxCityLength,
 }
 
 // Keys of a limit in the spec.

@@ -13,7 +13,7 @@ import (
 // EventFieldTimetable is the field name of an event's timetable. The
 // fields of one entry are named by TimetableField. The OpenAPI spec
 // (api/v1/openapi.yaml) defines them in the schemas Event, EventInput and
-// TimetableEntry; these constants mirror it (AD-9).
+// TimetableEntry/TimetableEntryInput; these constants mirror it (AD-9).
 const EventFieldTimetable = "timetable"
 
 // Field names within one timetable entry, used with TimetableField.
@@ -22,6 +22,10 @@ const (
 	TimetableFieldDate        = "date"
 	TimetableFieldStartTime   = "startTime"
 	TimetableFieldEndTime     = "endTime"
+	// TimetableFieldLocation is the own location of an entry in the spec:
+	// the complete location when reading, a brought-along location when
+	// importing, null for the location of the event.
+	TimetableFieldLocation = "location"
 	// TimetableFieldLocationID is internal to the admin form, which refers to
 	// a stored location by its ID. The public spec names the own location of
 	// an entry location and never gives out IDs (AD-14).

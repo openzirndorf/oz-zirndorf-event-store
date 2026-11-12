@@ -103,18 +103,21 @@ Ein Event aus `GET /v1/events`:
           "date": "2026-11-27",
           "description": "Eröffnung Christkind, Stadtjugendkapelle",
           "endTime": "21:00",
+          "location": null,
           "startTime": "15:00"
         },
         {
           "date": "2026-11-28",
           "description": "Marktbetrieb",
           "endTime": "21:00",
+          "location": null,
           "startTime": "15:00"
         },
         {
           "date": "2026-11-29",
           "description": "Marktbetrieb",
           "endTime": "20:00",
+          "location": null,
           "startTime": "14:00"
         }
       ],
@@ -125,7 +128,7 @@ Ein Event aus `GET /v1/events`:
 }
 ```
 
-*Das Beispiel stammt aus dem öffentlichen Bestand in Produktion. Ein Event mit Lücken wie der Weihnachtsmarkt steht als ein Event je zusammenhängendem Block in der API (hier je Adventswochenende), damit er an den Werktagen dazwischen nicht als laufend gilt. Verbindlich ist die OpenAPI-Spec `api/v1/openapi.yaml` mit den Schemas `Event` (Leseform) und `EventInput` (Schreibform für den Import). Die API gibt keine Kennungen aus; ein Ort ist an seinem eindeutigen Namen erkennbar.*
+*Das Beispiel stammt aus dem öffentlichen Bestand in Produktion. Ein Event mit Lücken wie der Weihnachtsmarkt steht als ein Event je zusammenhängendem Block in der API (hier je Adventswochenende), damit er an den Werktagen dazwischen nicht als laufend gilt. Ein Programmpunkt hat `location: null`, wenn er am Ort des Events stattfindet, sonst seinen eigenen Ort vollständig wie beim Event. Verbindlich ist die OpenAPI-Spec `api/v1/openapi.yaml` mit den Schemas `Event` und `TimetableEntry` (Leseform) sowie `EventInput` und `TimetableEntryInput` (Schreibform für den Import). Die API gibt keine Kennungen aus; ein Ort ist an seinem eindeutigen Namen erkennbar.*
 
 ## Architektur
 

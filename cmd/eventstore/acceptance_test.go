@@ -60,8 +60,8 @@ const wantFirstAdventWeekend = `{
 	},
 	"note": null,
 	"timetable": [
-		{"description": "Eröffnung durch den Bürgermeister, Stadtkapelle", "date": "2026-11-27", "startTime": "17:00", "endTime": "21:00"},
-		{"description": "Besuch des Christkinds", "date": "2026-11-28", "startTime": "14:00", "endTime": "21:00"}
+		{"description": "Eröffnung durch den Bürgermeister, Stadtkapelle", "date": "2026-11-27", "startTime": "17:00", "endTime": "21:00", "location": null},
+		{"description": "Besuch des Christkinds", "date": "2026-11-28", "startTime": "14:00", "endTime": "21:00", "location": null}
 	],
 	"effectiveStart": "2026-11-27T17:00:00+01:00",
 	"effectiveEnd": "2026-11-30T00:00:00+01:00"

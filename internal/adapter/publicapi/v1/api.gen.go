@@ -216,7 +216,7 @@ type EventInput struct {
 	StartTime *string `json:"startTime,omitempty"`
 
 	// Timetable Timetable of the event, in any order.
-	Timetable *[]TimetableEntry `json:"timetable,omitempty"`
+	Timetable *[]TimetableEntryInput `json:"timetable,omitempty"`
 
 	// Title Title of the event, German.
 	Title string `json:"title"`
@@ -357,8 +357,9 @@ type Source struct {
 // `allDay`: the event lasts the whole day, it has no time.
 type TimePrecision string
 
-// TimetableEntry One item of an event's timetable. An end time before the start time
-// ends on the following day.
+// TimetableEntry One item of an event's timetable as the public API lists it (read
+// form). It has the field names of TimetableEntryInput. An end time
+// before the start time ends on the following day.
 type TimetableEntry struct {
 	// Date Local date `YYYY-MM-DD` (Europe/Berlin).
 	Date openapi_types.Date `json:"date"`
@@ -368,6 +369,33 @@ type TimetableEntry struct {
 
 	// EndTime Local end time `HH:MM`, or `null` when unknown.
 	EndTime *string `json:"endTime"`
+
+	// Location The complete own location of the entry, in the same form as the
+	// location of the event. `null` means the entry takes place at the
+	// location of the event.
+	Location *EventLocation `json:"location"`
+
+	// StartTime Local start time `HH:MM`, or `null` when unknown.
+	StartTime *string `json:"startTime"`
+}
+
+// TimetableEntryInput One item of an event's timetable as an import file delivers it
+// (write form). It has the field names of TimetableEntry. An end time
+// before the start time ends on the following day.
+type TimetableEntryInput struct {
+	// Date Local date `YYYY-MM-DD` (Europe/Berlin).
+	Date openapi_types.Date `json:"date"`
+
+	// Description What happens.
+	Description string `json:"description"`
+
+	// EndTime Local end time `HH:MM`, or `null` when unknown.
+	EndTime *string `json:"endTime"`
+
+	// Location The own location the entry brings along, in the same form as the
+	// location of the event. Missing or `null` means the entry takes
+	// place at the location of the event.
+	Location *EventInputLocation `json:"location,omitempty"`
 
 	// StartTime Local start time `HH:MM`, or `null` when unknown.
 	StartTime *string `json:"startTime"`

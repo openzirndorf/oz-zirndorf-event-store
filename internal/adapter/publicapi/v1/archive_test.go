@@ -2,6 +2,7 @@ package v1
 
 import (
 	"bytes"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -170,6 +171,43 @@ func TestListArchivedEventsDeliversTheReadForm(t *testing.T) {
 	}
 	if strings.Contains(rec.Body.String(), hallID) {
 		t.Errorf("response contains the location ID %s", hallID)
+	}
+}
+
+// Both lists give each timetable entry its own location in full, or null
+// for the location of the event, from the real event query.
+func TestBothListsDeliverTheOwnLocationOfEachTimetableEntry(t *testing.T) {
+	tests := []struct {
+		path string
+		day  core.LocalDate
+	}{
+		{eventsPath, december(24)},
+		{archivePath, december(20)},
+	}
+	for _, test := range tests {
+		t.Run(test.path, func(t *testing.T) {
+			event := storedEvent(t, "0192f0b1-0000-7000-8000-000000000341", "Adventsmarkt", core.EventTypeMarket, core.EventTimes{StartDate: test.day})
+			event.Timetable = []core.TimetableEntry{
+				{ID: "0192f0b1-0000-7000-8000-000000000211", Description: "Andacht", Date: test.day, StartTime: localTime(9, 0), LocationID: churchID},
+				{ID: "0192f0b1-0000-7000-8000-000000000212", Description: "Eröffnung", Date: test.day, StartTime: localTime(10, 0)},
+			}
+			events := core.NewEventService(nil, &overlapRepo{events: []core.Event{event}}, locationList{locations: []core.Location{hall(), church()}})
+			var logs bytes.Buffer
+
+			listed := decodeEvents(t, serve(newEventsHandler(events, &logs), http.MethodGet, test.path))
+
+			if len(listed) != 1 {
+				t.Fatalf("got %d events, want 1", len(listed))
+			}
+			date := test.day.String()
+			want := `[{"date":"` + date + `","description":"Andacht","endTime":null,"location":` + churchJSON + `,"startTime":"09:00"},` +
+				`{"date":"` + date + `","description":"Eröffnung","endTime":null,"location":null,"startTime":"10:00"}]`
+			got, err := json.Marshal(listed[0]["timetable"])
+			if err != nil {
+				t.Fatalf("encode timetable: %v", err)
+			}
+			assertSameJSON(t, got, want)
+		})
 	}
 }
 

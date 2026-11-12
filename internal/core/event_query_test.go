@@ -258,7 +258,7 @@ func TestListActiveEventsSortsByEffectiveStartThenID(t *testing.T) {
 func TestListActiveEventsCompletesEachEvent(t *testing.T) {
 	market := storedEvent(t, marketID, "Weihnachtsmarkt", EventTimes{StartDate: december(20), EndDate: christmasEve})
 	market.Timetable = []TimetableEntry{
-		{ID: "b", Description: "Posaunenchor", Date: christmasEve, StartTime: localTime(16, 0)},
+		{ID: "b", Description: "Posaunenchor", Date: christmasEve, StartTime: localTime(16, 0), LocationID: parkID},
 		{ID: "a", Description: "Eröffnung", Date: december(20), StartTime: localTime(17, 0)},
 	}
 	concert := storedEvent(t, concertID, "Konzert", EventTimes{StartDate: christmasEve, StartTime: localTime(19, 0)})
@@ -287,6 +287,8 @@ func TestListActiveEventsCompletesEachEvent(t *testing.T) {
 	if got := byTitle["Weihnachtsmarkt"].Timetable; len(got) != 2 || got[0].Description != "Eröffnung" {
 		t.Errorf("timetable = %+v, want it sorted chronologically", got)
 	}
+	assertEntryLocations(t, byTitle["Weihnachtsmarkt"], map[string]*Location{"Eröffnung": nil, "Posaunenchor": ptr(park())})
+	assertEntryLocations(t, byTitle["Konzert"], map[string]*Location{})
 	precisions := map[string][2]TimePrecision{
 		"Weihnachtsmarkt": {TimePrecisionDateOnly, TimePrecisionDateOnly},
 		"Konzert":         {TimePrecisionExact, ""},
@@ -345,6 +347,38 @@ func TestListActiveEventsPassesFailuresOn(t *testing.T) {
 			t.Errorf("err = %v, want ErrNotFound naming %s", err, hallID)
 		}
 	})
+	t.Run("location of a timetable entry missing", func(t *testing.T) {
+		service := newQueryService(newFakeEventRepo(eventWithEntryAtThePark(t, christmasEve)), hall())
+		_, err := service.ListActiveEvents(context.Background(), christmasNoon(t), EventFilter{})
+		if !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), parkID) {
+			t.Errorf("err = %v, want ErrNotFound naming %s", err, parkID)
+		}
+	})
+}
+
+// eventWithEntryAtThePark returns an event at the hall on day with one
+// timetable entry at the park.
+func eventWithEntryAtThePark(t *testing.T, day LocalDate) Event {
+	t.Helper()
+	event := storedEvent(t, marketID, "Weihnachtsmarkt", EventTimes{StartDate: day})
+	event.Timetable = []TimetableEntry{{ID: "a", Description: "Andacht", Date: day, LocationID: parkID}}
+	return event
+}
+
+// assertEntryLocations checks the own location of every timetable entry of
+// event by description; nil means the location of the event.
+func assertEntryLocations(t *testing.T, event ListedEvent, want map[string]*Location) {
+	t.Helper()
+	if len(event.Timetable) != len(want) {
+		t.Fatalf("%s has %d entries, want %d", event.Title, len(event.Timetable), len(want))
+	}
+	for _, entry := range event.Timetable {
+		location, own := event.EntryLocation(entry)
+		wanted := want[entry.Description]
+		if own != (wanted != nil) || (own && location != *wanted) {
+			t.Errorf("%s: EntryLocation = %+v, %v, want %+v", entry.Description, location, own, wanted)
+		}
+	}
 }
 
 // assertOverlap checks the one overlap the repository was asked for, with
@@ -629,12 +663,12 @@ func TestListArchivedEventsSortsByEffectiveStartDescendingThenID(t *testing.T) {
 func TestListArchivedEventsCompletesEachEventAsArchived(t *testing.T) {
 	market := storedEvent(t, marketID, "Nikolausmarkt", EventTimes{StartDate: december(5), EndDate: december(6)})
 	market.Timetable = []TimetableEntry{
-		{ID: "b", Description: "Nikolaus", Date: december(6), StartTime: localTime(16, 0)},
+		{ID: "b", Description: "Nikolaus", Date: december(6), StartTime: localTime(16, 0), LocationID: parkID},
 		{ID: "a", Description: "Eröffnung", Date: december(5), StartTime: localTime(17, 0)},
 	}
 	market.Period = Period{Start: market.Period.Start.UTC(), End: market.Period.End.UTC()}
 
-	listed, err := newQueryService(newFakeEventRepo(market), hall()).ListArchivedEvents(context.Background(), christmasNoon(t), EventFilter{})
+	listed, err := newQueryService(newFakeEventRepo(market), hall(), park()).ListArchivedEvents(context.Background(), christmasNoon(t), EventFilter{})
 	if err != nil {
 		t.Fatalf("ListArchivedEvents: %v", err)
 	}
@@ -649,6 +683,7 @@ func TestListArchivedEventsCompletesEachEventAsArchived(t *testing.T) {
 	if got.Timetable[0].Description != "Eröffnung" {
 		t.Errorf("timetable = %+v, want it sorted chronologically", got.Timetable)
 	}
+	assertEntryLocations(t, got, map[string]*Location{"Eröffnung": nil, "Nikolaus": ptr(park())})
 	if got.StartPrecision != TimePrecisionDateOnly || got.EndPrecision != TimePrecisionDateOnly {
 		t.Errorf("precisions = %v, %v, want dateOnly", got.StartPrecision, got.EndPrecision)
 	}
@@ -854,6 +889,13 @@ func TestListArchivedEventsPassesFailuresOn(t *testing.T) {
 		_, err := newQueryService(newFakeEventRepo(archiveEvents(t)...)).ListArchivedEvents(context.Background(), christmasNoon(t), EventFilter{})
 		if !errors.Is(err, ErrNotFound) {
 			t.Errorf("err = %v, want ErrNotFound", err)
+		}
+	})
+	t.Run("location of a timetable entry missing", func(t *testing.T) {
+		service := newQueryService(newFakeEventRepo(eventWithEntryAtThePark(t, december(5))), hall())
+		_, err := service.ListArchivedEvents(context.Background(), christmasNoon(t), EventFilter{})
+		if !errors.Is(err, ErrNotFound) || !strings.Contains(err.Error(), parkID) {
+			t.Errorf("err = %v, want ErrNotFound naming %s", err, parkID)
 		}
 	})
 }
