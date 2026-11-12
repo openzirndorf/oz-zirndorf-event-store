@@ -112,6 +112,10 @@ const (
 	// importEntryLabelFormat names a timetable entry by its position.
 	importEntryLabelFormat      = "Programmpunkt %d"
 	importEntryFieldLabelFormat = importEntryLabelFormat + ", %s"
+	// importEntryLocationFieldLabelFormat names a field of the own location
+	// of a timetable entry.
+	importEntryLocationFieldLabelFormat = importEntryLabelFormat + ", " + msgImportEntryLocation + ": %s"
+	msgImportEntryLocation              = "Ort"
 )
 
 // German texts of committing an import.
@@ -225,6 +229,7 @@ var timetableFieldLabels = map[string]string{
 	core.TimetableFieldDate:        "Datum",
 	core.TimetableFieldStartTime:   "Beginn-Uhrzeit",
 	core.TimetableFieldEndTime:     "End-Uhrzeit",
+	core.TimetableFieldLocation:    msgImportEntryLocation,
 }
 
 // importOnlyMessages are the German messages for problems only the import
@@ -778,6 +783,9 @@ func importFieldLabel(field string) string {
 		return label
 	}
 	if index, name, ok := core.SplitTimetableField(field); ok {
+		if strings.HasPrefix(name, importLocationPrefix) {
+			return fmt.Sprintf(importEntryLocationFieldLabelFormat, index+1, importFieldLabels[name])
+		}
 		return fmt.Sprintf(importEntryFieldLabelFormat, index+1, timetableFieldLabels[name])
 	}
 	if index, ok := timetableEntryIndex(field); ok {
@@ -818,6 +826,11 @@ func importProblemMessage(problem core.FieldError) string {
 	}
 	if _, name, ok := core.SplitTimetableField(problem.Field); ok {
 		problem.Field = name
+		// The own location of an entry has the messages of the location of
+		// the event.
+		if strings.HasPrefix(name, importLocationPrefix) {
+			return importProblemMessage(problem)
+		}
 		return importFieldMessage(problem, timetableFieldMessages)
 	}
 	return importFieldMessage(problem, eventFieldMessages)

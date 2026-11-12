@@ -392,9 +392,17 @@ type TimetableEntryInput struct {
 	// EndTime Local end time `HH:MM`, or `null` when unknown.
 	EndTime *string `json:"endTime"`
 
-	// Location The own location the entry brings along, in the same form as the
-	// location of the event. Missing or `null` means the entry takes
-	// place at the location of the event.
+	// Location The own location the entry brings along, in the same form and
+	// resolved like the location of the event: a name of a stored
+	// location refers to it, a new name must come with address,
+	// coordinates and precision and is created once per name and file,
+	// a name of several stored locations is an error. The location of
+	// the event itself counts as no own location. `null` means the
+	// entry takes place at the location of the event. A missing
+	// `location` means the same, except when an import with
+	// `importKey` updates a stored event: then the entry keeps the own
+	// location of the stored entry with the same description, date
+	// and times.
 	Location *EventInputLocation `json:"location,omitempty"`
 
 	// StartTime Local start time `HH:MM`, or `null` when unknown.

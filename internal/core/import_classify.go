@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -104,6 +105,12 @@ const (
 	timetableLineSeparator  = "\n"
 	timetablePartSeparator  = " "
 	timetableRangeSeparator = "–"
+	// timetableLocationSeparator precedes the location of an entry where a
+	// line names it.
+	timetableLocationSeparator = " · "
+	// timetableAtEventLocation names the location of an entry without own
+	// location.
+	timetableAtEventLocation = "Ort des Events"
 )
 
 // importClassifier classifies the entries of an import file against the
@@ -194,15 +201,23 @@ func markImportKeysGivenTwice(entries []ImportEntry) {
 // import key, if there is one, and looks for stored duplicates. A new
 // location has no stored events, so it has no stored duplicates either.
 func (c *importClassifier) classifyAgainstStore(ctx context.Context, entry *ImportEntry, imported importedEvent) error {
-	imported.event.LocationID = imported.location.ID
 	if !imported.isNewLocation() {
-		entry.Hints = append(entry.Hints, storedLocationHints(*entry.Input.Location, imported.location)...)
+		entry.Hints = append(entry.Hints, storedLocationHints(EventFieldLocation, *entry.Input.Location, imported.location)...)
 	}
-	if target, found := c.eventsByImportKey[normalizeText(entry.Input.ImportKey)]; found {
-		imported.event.ID = target.ID
+	entry.Hints = append(entry.Hints, storedEntryLocationHints(entry.Input.Timetable, imported.entryLocations)...)
+	target, found := c.eventsByImportKey[normalizeText(entry.Input.ImportKey)]
+	// The resolved and kept own location IDs are classification output:
+	// the commit writes them as they stand in entry.Input.
+	entry.Input.Timetable = withEntryLocationIDs(entry.Input.Timetable, imported.entryLocations, target.Timetable)
+	compared, err := imported.withLocationKeys(entry.Input.Timetable)
+	if err != nil {
+		return err
+	}
+	if found {
+		compared.event.ID = target.ID
 		entry.TargetID = target.ID
 		entry.TargetFingerprint = EventFingerprint(target)
-		entry.Changes = changesOf(target, c.locationNames[target.LocationID], imported)
+		entry.Changes = changesOf(target, c.namesFor(imported), compared)
 		entry.Class = ImportClassUnchanged
 		if entry.Changes != nil {
 			entry.Class = ImportClassUpdate
@@ -211,7 +226,7 @@ func (c *importClassifier) classifyAgainstStore(ctx context.Context, entry *Impo
 	if imported.isNewLocation() {
 		return nil
 	}
-	candidates, err := FindDuplicateCandidates(ctx, c.events, imported.event)
+	candidates, err := FindDuplicateCandidates(ctx, c.events, compared.event)
 	if err != nil {
 		return err
 	}
@@ -239,11 +254,126 @@ func addDuplicate(entry *ImportEntry, candidate ImportCandidate) {
 	entry.Class = ImportClassDuplicateSuspect
 }
 
+// previewLocationKeyPrefix starts the key by which the preview refers to a
+// new location. It is followed by the name key, and no ID starts with it.
+const previewLocationKeyPrefix = "new:"
+
+// previewLocationKey returns how the preview refers to location: by its ID
+// when stored, by its name key when new, so Canonicalize and changesOf
+// treat a new location like a stored one. The key of a new location never
+// reaches SaveEvent; the commit replaces it with the created ID.
+func previewLocationKey(location Location) string {
+	if location.ID != "" {
+		return location.ID
+	}
+	return previewLocationKeyPrefix + location.NameKey
+}
+
+// withLocationKeys returns the imported event with its location and the
+// own locations of timetable, its entries as classified, given by
+// previewLocationKey; an entry without own location in the file keeps the
+// LocationID it has. The entries were checked when read, so parsing them
+// again without bounds only carries their own locations into the parsed
+// timetable; a problem it still finds is returned as *ValidationError.
+func (i importedEvent) withLocationKeys(timetable []TimetableEntryInput) (importedEvent, error) {
+	keyed := i
+	keyed.event.LocationID = previewLocationKey(i.location)
+	inputs := make([]TimetableEntryInput, 0, len(timetable))
+	for index, entry := range timetable {
+		if own := i.entryLocations[index]; own.Name != "" {
+			entry.LocationID = previewLocationKey(own)
+		}
+		inputs = append(inputs, entry.normalized())
+	}
+	parsed, problems := parseTimetable(inputs, nil)
+	if problems != nil {
+		return importedEvent{}, fmt.Errorf("parse checked import timetable: %w", &ValidationError{Fields: problems})
+	}
+	keyed.event.Timetable = parsed
+	return keyed, nil
+}
+
+// timetableEntryMatch is what a timetable entry of the file shares with
+// the stored entry whose own location it keeps when it brings none.
+type timetableEntryMatch struct {
+	description string
+	date        string
+	startTime   string
+	endTime     string
+}
+
+func timetableEntryMatchOf(entry TimetableEntryInput) timetableEntryMatch {
+	normalized := entry.normalized()
+	return timetableEntryMatch{
+		description: normalized.Description, date: normalized.Date,
+		startTime: normalized.StartTime, endTime: normalized.EndTime,
+	}
+}
+
+// withEntryLocationIDs returns timetable with the stored own location of
+// each entry: the stored location it names, or, when it brings no location
+// and does not give null, the own location of the matching entry of
+// stored, the timetable of its target. Equal entries match in order, the
+// stored ones sorted. A new location stays without ID.
+func withEntryLocationIDs(timetable []TimetableEntryInput, own []Location, stored []TimetableEntry) []TimetableEntryInput {
+	storedLocationIDs := make(map[timetableEntryMatch][]string)
+	for _, entry := range sortedTimetable(stored) {
+		match := timetableEntryMatch{
+			description: entry.Description, date: dateText(entry.Date),
+			startTime: timeText(entry.StartTime), endTime: timeText(entry.EndTime),
+		}
+		storedLocationIDs[match] = append(storedLocationIDs[match], entry.LocationID)
+	}
+	resolved := slices.Clone(timetable)
+	for index := range resolved {
+		entry := &resolved[index]
+		match := timetableEntryMatchOf(*entry)
+		var storedLocationID string
+		if ids := storedLocationIDs[match]; len(ids) > 0 {
+			storedLocationID, storedLocationIDs[match] = ids[0], ids[1:]
+		}
+		switch {
+		case own[index].Name != "":
+			entry.LocationID = own[index].ID
+		case !entry.AtEventLocation:
+			entry.LocationID = storedLocationID
+		}
+	}
+	return resolved
+}
+
+// importLocationNames names the locations an entry refers to: stored ones
+// by ID, the new ones it brings by previewLocationKey.
+type importLocationNames struct {
+	stored   map[string]string
+	newNames map[string]string
+}
+
+// nameOf returns the name of the location with ID or preview key key.
+func (n importLocationNames) nameOf(key string) string {
+	if name, ok := n.stored[key]; ok {
+		return name
+	}
+	return n.newNames[key]
+}
+
+// namesFor returns the names of the stored locations and of the new ones
+// imported brings along.
+func (c *importClassifier) namesFor(imported importedEvent) importLocationNames {
+	names := importLocationNames{stored: c.locationNames, newNames: make(map[string]string)}
+	for _, location := range append([]Location{imported.location}, imported.entryLocations...) {
+		if location.Name != "" && location.ID == "" {
+			names.newNames[previewLocationKey(location)] = location.Name
+		}
+	}
+	return names
+}
+
 // changesOf compares the canonical forms of the stored event and the
-// imported one, which refers to its location by ID, empty for a new one.
-// It returns every changed field in the order of EventInput, none when
-// they are equal.
-func changesOf(stored Event, storedLocationName string, imported importedEvent) []ImportChange {
+// imported one, which refers to its locations by previewLocationKey. It
+// returns every changed field in the order of EventInput, none when they
+// are equal.
+func changesOf(stored Event, names importLocationNames, imported importedEvent) []ImportChange {
 	before := EventInputOf(stored).Canonicalize()
 	after := EventInputOf(imported.event).Canonicalize()
 	var changes []ImportChange
@@ -255,7 +385,7 @@ func changesOf(stored Event, storedLocationName string, imported importedEvent) 
 	add(EventFieldTitle, before.Title, after.Title)
 	add(EventFieldType, before.Type, after.Type)
 	if before.LocationID != after.LocationID {
-		changes = append(changes, ImportChange{Field: EventFieldLocation, Old: storedLocationName, New: imported.location.Name})
+		changes = append(changes, ImportChange{Field: EventFieldLocation, Old: names.nameOf(before.LocationID), New: imported.location.Name})
 	}
 	add(EventFieldStartDate, before.StartDate, after.StartDate)
 	add(EventFieldStartTime, before.StartTime, after.StartTime)
@@ -266,14 +396,26 @@ func changesOf(stored Event, storedLocationName string, imported importedEvent) 
 	add(EventFieldSourceURL, before.Source.URL, after.Source.URL)
 	add(EventFieldNote, before.Note, after.Note)
 	if !slices.Equal(before.Timetable, after.Timetable) {
-		changes = append(changes, ImportChange{Field: EventFieldTimetable, Old: timetableText(before.Timetable), New: timetableText(after.Timetable)})
+		withLocations := hasOwnLocation(before.Timetable) || hasOwnLocation(after.Timetable)
+		changes = append(changes, ImportChange{
+			Field: EventFieldTimetable,
+			Old:   timetableText(before.Timetable, names, withLocations),
+			New:   timetableText(after.Timetable, names, withLocations),
+		})
 	}
 	return changes
 }
 
+// hasOwnLocation reports whether an entry of timetable has an own location.
+func hasOwnLocation(timetable []TimetableEntryInput) bool {
+	return slices.ContainsFunc(timetable, func(entry TimetableEntryInput) bool { return entry.LocationID != "" })
+}
+
 // timetableText returns the text form of a timetable, one line per entry
-// such as "2026-10-17 19:00–22:00 Vorband".
-func timetableText(entries []TimetableEntryInput) string {
+// such as "2026-10-17 19:00–22:00 Vorband". withLocations appends the name
+// of each entry's location, timetableAtEventLocation for none, such as
+// "2026-10-17 19:00 Vorband · Kirche St. Rochus".
+func timetableText(entries []TimetableEntryInput, names importLocationNames, withLocations bool) string {
 	lines := make([]string, 0, len(entries))
 	for _, entry := range entries {
 		times := entry.StartTime
@@ -281,20 +423,41 @@ func timetableText(entries []TimetableEntryInput) string {
 			times += timetableRangeSeparator + entry.EndTime
 		}
 		parts := slices.DeleteFunc([]string{entry.Date, times, entry.Description}, func(part string) bool { return part == "" })
-		lines = append(lines, strings.Join(parts, timetablePartSeparator))
+		line := strings.Join(parts, timetablePartSeparator)
+		if withLocations {
+			line += timetableLocationSeparator + cmp.Or(names.nameOf(entry.LocationID), timetableAtEventLocation)
+		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, timetableLineSeparator)
 }
 
 // storedLocationHints names every given street, postal code, city or
-// coordinate that differs from the stored location.
-func storedLocationHints(given LocationInput, stored Location) []ImportHint {
+// coordinate of the location object at path that differs from the stored
+// location.
+func storedLocationHints(path string, given LocationInput, stored Location) []ImportHint {
 	var hints []ImportHint
-	hints = appendLocationHint(hints, ImportHintLocationDiffers, LocationFieldStreet, givenTextDiffers(given.Street, stored.Street))
-	hints = appendLocationHint(hints, ImportHintLocationDiffers, LocationFieldPostalCode, givenTextDiffers(given.PostalCode, stored.PostalCode))
-	hints = appendLocationHint(hints, ImportHintLocationDiffers, LocationFieldCity, givenTextDiffers(given.City, stored.City))
-	hints = appendLocationHint(hints, ImportHintLocationDiffers, LocationFieldLatitude, givenCoordinateDiffers(given.Latitude, stored.Latitude, maxLatitude))
-	hints = appendLocationHint(hints, ImportHintLocationDiffers, LocationFieldLongitude, givenCoordinateDiffers(given.Longitude, stored.Longitude, maxLongitude))
+	add := func(field string, differs bool) {
+		hints = appendLocationHint(hints, ImportHintLocationDiffers, importLocationField(path, field), differs)
+	}
+	add(LocationFieldStreet, givenTextDiffers(given.Street, stored.Street))
+	add(LocationFieldPostalCode, givenTextDiffers(given.PostalCode, stored.PostalCode))
+	add(LocationFieldCity, givenTextDiffers(given.City, stored.City))
+	add(LocationFieldLatitude, givenCoordinateDiffers(given.Latitude, stored.Latitude, maxLatitude))
+	add(LocationFieldLongitude, givenCoordinateDiffers(given.Longitude, stored.Longitude, maxLongitude))
+	return hints
+}
+
+// storedEntryLocationHints returns the storedLocationHints of every
+// timetable entry that names a stored location.
+func storedEntryLocationHints(timetable []TimetableEntryInput, own []Location) []ImportHint {
+	var hints []ImportHint
+	for index, location := range own {
+		if location.ID != "" {
+			path := TimetableField(index, TimetableFieldLocation)
+			hints = append(hints, storedLocationHints(path, *timetable[index].Location, location)...)
+		}
+	}
 	return hints
 }
 
@@ -314,13 +477,13 @@ func givenCoordinateDiffers(text string, stored, limit float64) bool {
 	return problem != "" || value != stored
 }
 
-// appendLocationHint appends a hint of kind at the location field when
+// appendLocationHint appends a hint of kind at the import path field when
 // differs.
 func appendLocationHint(hints []ImportHint, kind ImportHintKind, field string, differs bool) []ImportHint {
 	if !differs {
 		return hints
 	}
-	return append(hints, ImportHint{Kind: kind, Field: importLocationField(field)})
+	return append(hints, ImportHint{Kind: kind, Field: field})
 }
 
 // fileDuplicateKey is what two entries of a file share when one may
@@ -364,37 +527,68 @@ func markDuplicatesInFile(entries []ImportEntry, imported []importedEvent) {
 	}
 }
 
-// collectNewLocations returns the new locations of the valid entries, once
-// per NormalizeKey of the name with the positions bringing it. The first
-// entry's details count; a later entry whose details differ gets a hint
-// for each differing field.
+// broughtNewLocation is a new location an entry brings along: the
+// location of the event or the own location of a timetable entry.
+type broughtNewLocation struct {
+	// path is the import path of the location object.
+	path     string
+	location Location
+	// input is the location as read.
+	input *LocationInput
+}
+
+// newLocationsOf returns the new locations a valid entry brings along: that
+// of the event first, then those of its timetable entries in file order.
+func newLocationsOf(entry ImportEntry, imported importedEvent) []broughtNewLocation {
+	var brought []broughtNewLocation
+	if imported.isNewLocation() {
+		brought = append(brought, broughtNewLocation{path: EventFieldLocation, location: imported.location, input: entry.Input.Location})
+	}
+	for index, location := range imported.entryLocations {
+		if location.Name != "" && location.ID == "" {
+			brought = append(brought, broughtNewLocation{
+				path: TimetableField(index, TimetableFieldLocation), location: location, input: entry.Input.Timetable[index].Location,
+			})
+		}
+	}
+	return brought
+}
+
+// collectNewLocations returns the new locations of the valid entries, from
+// their events and timetable entries, once per NormalizeKey of the name
+// with the positions bringing it. The first one's details count; a later
+// one whose details differ gets a hint for each differing field.
 func collectNewLocations(entries []ImportEntry, imported []importedEvent) []ImportNewLocation {
 	var newLocations []ImportNewLocation
 	var firsts []Location
 	indexOf := make(map[string]int)
 	for index := range entries {
 		entry := &entries[index]
-		if entry.Class == ImportClassError || !imported[index].isNewLocation() {
+		if entry.Class == ImportClassError {
 			continue
 		}
-		entry.NewLocation = true
-		location := imported[index].location
-		first, seen := indexOf[location.NameKey]
-		if !seen {
-			indexOf[location.NameKey] = len(newLocations)
-			newLocations = append(newLocations, ImportNewLocation{Name: location.Name, Positions: []int{entry.Position}})
-			firsts = append(firsts, location)
-			continue
+		for _, brought := range newLocationsOf(*entry, imported[index]) {
+			entry.NewLocation = true
+			location := brought.location
+			first, seen := indexOf[location.NameKey]
+			if !seen {
+				indexOf[location.NameKey] = len(newLocations)
+				newLocations = append(newLocations, ImportNewLocation{Name: location.Name, Positions: []int{entry.Position}})
+				firsts = append(firsts, location)
+				continue
+			}
+			if positions := newLocations[first].Positions; positions[len(positions)-1] != entry.Position {
+				newLocations[first].Positions = append(positions, entry.Position)
+			}
+			entry.Hints = append(entry.Hints, newLocationHints(brought.path, firsts[first], location)...)
 		}
-		newLocations[first].Positions = append(newLocations[first].Positions, entry.Position)
-		entry.Hints = append(entry.Hints, newLocationHints(firsts[first], location)...)
 	}
 	return newLocations
 }
 
-// newLocationHints names every field in which a later entry's new location
-// differs from the first one.
-func newLocationHints(first, later Location) []ImportHint {
+// newLocationHints names every field of the location object at path in
+// which a later new location differs from the first one.
+func newLocationHints(path string, first, later Location) []ImportHint {
 	differences := []struct {
 		field   string
 		differs bool
@@ -410,7 +604,7 @@ func newLocationHints(first, later Location) []ImportHint {
 	}
 	var hints []ImportHint
 	for _, difference := range differences {
-		hints = appendLocationHint(hints, ImportHintNewLocationDiffers, difference.field, difference.differs)
+		hints = appendLocationHint(hints, ImportHintNewLocationDiffers, importLocationField(path, difference.field), difference.differs)
 	}
 	return hints
 }

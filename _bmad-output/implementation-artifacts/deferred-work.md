@@ -118,5 +118,10 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-1-eigenen-ort-fuer-programmpunkt-im-admin-waehlen.md`
   summary: Erneuter Import einer Datei ohne Ort am Programmpunkt klassifiziert ein Event, dessen Programmpunkt im Admin einen eigenen Ort hat, als `update` mit scheinbar leerer Änderungsanzeige, und der Commit löscht den Ort.
   evidence: `changesOf` (`internal/core/import_classify.go:268`) vergleicht `EventInputOf(stored).Timetable` mit dem importierten; der gespeicherte Eintrag trägt jetzt `LocationID`, der importierte nie. `timetableText` zeigt den Ort nicht. Der Frozen-Block von 5.1 schließt Änderungen am Import aus; 5.3 definiert „fehlender Ort = Ort des Events“ und die Änderungsanzeige. Bis 5.3 keine Programmpunkt-Orte im Echtbetrieb setzen (Entscheidung Andreas, 2026-11-11).
+  status: done
+  target: Story 5.3 (`spec-5-3-ort-des-programmpunkts-im-import.md`): Fehlt `location` am Programmpunkt, übernimmt `withEntryLocationIDs` (`internal/core/import_classify.go`) den eigenen Ort des passenden Bestands-Punkts, die alte Datei bleibt `unchanged`; `location: null` entfernt ihn (`update`), `timetableText` nennt dann je Punkt den Ort („Ort des Events“ ohne eigenen). Tests `TestPreviewImportComparesTheOwnLocationOfTimetableEntries`, `TestCommitImportStoresTheOwnLocationOfTimetableEntries`
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-3-ort-des-programmpunkts-im-import.md`
+  summary: Überschreibt ein Import einen Duplikatverdacht (`ImportChoiceOverwrite`), verlieren dessen Programmpunkte ohne `location` in der Datei ihren eigenen Ort ohne Anzeige.
+  evidence: `withEntryLocationIDs` (`internal/core/import_classify.go`) übernimmt gespeicherte Orte nur vom Ziel per `importKey`, wie die Entscheidung B in 5.3 festlegt („ohne Ziel gilt der Ort des Events“). Beim Überschreiben eines Kandidaten ohne Schlüssel ersetzt der Commit den ganzen Ablaufplan; Duplikatverdachte zeigen keine Änderungsanzeige, das gilt für alle Felder schon seit 3.3. Gefunden von drei Review-Ebenen am 2026-11-12.
   status: open
-  target: Story 5.3
+  target: Retro Epic 5 (Entscheidung, ob Überschreiben wie ein Update per `importKey` die Orte der Programmpunkte übernehmen soll)

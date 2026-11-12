@@ -105,7 +105,9 @@ type ImportEntry struct {
 	// Title is the normalized title, empty when it could not be read.
 	Title string
 	// Input is the event as read; Location is nil when the entry brings
-	// none.
+	// none. For a valid entry, the classification sets the LocationID of
+	// each timetable entry to the stored own location it names or keeps
+	// from its target; the commit writes these IDs.
 	Input EventInput
 	// Problems lists every rejected field by its path in the import
 	// schema, such as location.address.street or timetable[2].date; none
@@ -295,11 +297,16 @@ func readImportFile(data []byte) ([]json.RawMessage, error) {
 // importedEvent is an entry as the core would store it: the parsed event
 // and the location it refers to. Only valid entries use it.
 type importedEvent struct {
-	// event has no location ID; location says where it takes place.
+	// event has no location IDs; location and entryLocations say where it
+	// takes place.
 	event Event
 	// location is the stored location the entry names, or the new one it
 	// brings along, without ID.
 	location Location
+	// entryLocations holds the own location of each timetable entry by its
+	// index in the file, stored or new like location; an entry that brings
+	// none has the zero Location.
+	entryLocations []Location
 }
 
 // isNewLocation reports whether the entry brings a location that is not
@@ -328,8 +335,9 @@ func readImportEntry(raw json.RawMessage, storedLocations map[string][]Location)
 		checked.Location = &LocationInput{}
 	}
 	event, eventProblems := newEvent(checked)
-	location, locationProblems := resolveImportLocation(in.Location, storedLocations)
-	problems := slices.Concat(eventProblems, locationProblems)
+	location, locationProblems := resolveImportLocation(eventLocationSlot, in.Location, storedLocations)
+	entryLocations, entryLocationProblems := resolveTimetableLocations(in.Timetable, storedLocations)
+	problems := slices.Concat(eventProblems, locationProblems, entryLocationProblems)
 	entry := ImportEntry{
 		Title:    normalizeText(in.Title),
 		Input:    in,
@@ -339,7 +347,7 @@ func readImportEntry(raw json.RawMessage, storedLocations map[string][]Location)
 	if !entry.IsValid() {
 		entry.Class = ImportClassError
 	}
-	return entry, importedEvent{event: event, location: location}
+	return entry, importedEvent{event: event, location: location, entryLocations: entryLocations}
 }
 
 // readEventInput reads the fields of an entry by the names of EventInput
@@ -363,34 +371,36 @@ func readEventInput(reader *jsonReader, fields map[string]json.RawMessage) Event
 		}
 	}
 	if location, ok := reader.nestedObject(fields, EventFieldLocation, EventFieldLocation); ok {
-		in.Location = readLocationInput(reader, location)
+		in.Location = readLocationInput(reader, location, EventFieldLocation)
 	}
 	in.Timetable = readTimetable(reader, fields)
 	return in
 }
 
-// readLocationInput reads the location an entry brings along.
-func readLocationInput(reader *jsonReader, fields map[string]json.RawMessage) *LocationInput {
+// readLocationInput reads a location an entry brings along, its fields
+// named within path: location for the event, timetable[2].location for a
+// timetable entry.
+func readLocationInput(reader *jsonReader, fields map[string]json.RawMessage, path string) *LocationInput {
 	in := &LocationInput{
-		Name:      readText(reader, fields, LocationFieldName, importLocationField(LocationFieldName)),
-		Latitude:  readCoordinate(reader, fields, LocationFieldLatitude),
-		Longitude: readCoordinate(reader, fields, LocationFieldLongitude),
-		Precision: readText(reader, fields, LocationFieldPrecision, importLocationField(LocationFieldPrecision)),
-		Note:      readText(reader, fields, LocationFieldNote, importLocationField(LocationFieldNote)),
+		Name:      readText(reader, fields, LocationFieldName, importLocationField(path, LocationFieldName)),
+		Latitude:  readCoordinate(reader, fields, LocationFieldLatitude, path),
+		Longitude: readCoordinate(reader, fields, LocationFieldLongitude, path),
+		Precision: readText(reader, fields, LocationFieldPrecision, importLocationField(path, LocationFieldPrecision)),
+		Note:      readText(reader, fields, LocationFieldNote, importLocationField(path, LocationFieldNote)),
 	}
-	addressPath := EventFieldLocation + fieldPathSeparator + LocationFieldAddress
+	addressPath := path + fieldPathSeparator + LocationFieldAddress
 	if address, ok := reader.nestedObject(fields, LocationFieldAddress, addressPath); ok {
-		in.Street = readText(reader, address, LocationFieldStreet, importLocationField(LocationFieldStreet))
-		in.PostalCode = readText(reader, address, LocationFieldPostalCode, importLocationField(LocationFieldPostalCode))
-		in.City = readText(reader, address, LocationFieldCity, importLocationField(LocationFieldCity))
+		in.Street = readText(reader, address, LocationFieldStreet, importLocationField(path, LocationFieldStreet))
+		in.PostalCode = readText(reader, address, LocationFieldPostalCode, importLocationField(path, LocationFieldPostalCode))
+		in.City = readText(reader, address, LocationFieldCity, importLocationField(path, LocationFieldCity))
 	}
 	return in
 }
 
-// readCoordinate reads a JSON number as text for newLocation; a missing
-// number is empty text.
-func readCoordinate(reader *jsonReader, fields map[string]json.RawMessage, name string) string {
-	value, ok := readOptionalJSON[float64](reader, fields, name, importLocationField(name))
+// readCoordinate reads a JSON number of the location at path as text for
+// newLocation; a missing number is empty text.
+func readCoordinate(reader *jsonReader, fields map[string]json.RawMessage, name, path string) string {
+	value, ok := readOptionalJSON[float64](reader, fields, name, importLocationField(path, name))
 	if !ok {
 		return ""
 	}
@@ -406,34 +416,83 @@ func readTimetable(reader *jsonReader, fields map[string]json.RawMessage) []Time
 	for index, raw := range rawEntries {
 		entryPath := EventFieldTimetable + listIndexOpen + strconv.Itoa(index) + listIndexClose
 		entryFields, _ := reader.object(raw, entryPath)
-		timetable = append(timetable, TimetableEntryInput{
-			Description: readText(reader, entryFields, TimetableFieldDescription, TimetableField(index, TimetableFieldDescription)),
-			Date:        readText(reader, entryFields, TimetableFieldDate, TimetableField(index, TimetableFieldDate)),
-			StartTime:   readText(reader, entryFields, TimetableFieldStartTime, TimetableField(index, TimetableFieldStartTime)),
-			EndTime:     readText(reader, entryFields, TimetableFieldEndTime, TimetableField(index, TimetableFieldEndTime)),
-		})
+		entry := TimetableEntryInput{
+			Description:     readText(reader, entryFields, TimetableFieldDescription, TimetableField(index, TimetableFieldDescription)),
+			Date:            readText(reader, entryFields, TimetableFieldDate, TimetableField(index, TimetableFieldDate)),
+			StartTime:       readText(reader, entryFields, TimetableFieldStartTime, TimetableField(index, TimetableFieldStartTime)),
+			EndTime:         readText(reader, entryFields, TimetableFieldEndTime, TimetableField(index, TimetableFieldEndTime)),
+			AtEventLocation: isJSONNull(entryFields, TimetableFieldLocation),
+		}
+		locationPath := TimetableField(index, TimetableFieldLocation)
+		if location, ok := reader.nestedObject(entryFields, TimetableFieldLocation, locationPath); ok {
+			entry.Location = readLocationInput(reader, location, locationPath)
+		}
+		timetable = append(timetable, entry)
 	}
 	return timetable
 }
 
-// resolveImportLocation checks the location an entry brings along: it is
-// required, its name too. A name of exactly one stored location needs
-// nothing else and yields it; a name of several is ambiguous, as no stored
-// location is preferred. A new location is checked like SaveLocation, its
-// fields named by their import paths, and yielded without ID.
-func resolveImportLocation(location *LocationInput, storedLocations map[string][]Location) (Location, []FieldError) {
+// isJSONNull reports whether the field name is given as null.
+func isJSONNull(fields map[string]json.RawMessage, name string) bool {
+	raw, given := fields[name]
+	return given && bytes.Equal(raw, jsonNull)
+}
+
+// importLocationSlot is where an entry brings a location along: path is
+// the import path of the location object, and a required location must be
+// given.
+type importLocationSlot struct {
+	path     string
+	required bool
+}
+
+// eventLocationSlot is the location of the event, which every entry must
+// bring along.
+var eventLocationSlot = importLocationSlot{path: EventFieldLocation, required: true}
+
+// timetableLocationSlot is the optional own location of the timetable
+// entry at index.
+func timetableLocationSlot(index int) importLocationSlot {
+	return importLocationSlot{path: TimetableField(index, TimetableFieldLocation)}
+}
+
+// resolveTimetableLocations resolves the own location of every timetable
+// entry like resolveImportLocation and returns them by the index of the
+// entry.
+func resolveTimetableLocations(timetable []TimetableEntryInput, storedLocations map[string][]Location) ([]Location, []FieldError) {
+	locations := make([]Location, 0, len(timetable))
+	var problems []FieldError
+	for index, entry := range timetable {
+		location, locationProblems := resolveImportLocation(timetableLocationSlot(index), entry.Location, storedLocations)
+		locations = append(locations, location)
+		problems = append(problems, locationProblems...)
+	}
+	return locations, problems
+}
+
+// resolveImportLocation checks a location an entry brings along at slot.
+// A missing location is a problem only where the slot requires one;
+// otherwise it yields the zero Location. A given location needs a name. A
+// name of exactly one stored location needs nothing else and yields it; a
+// name of several is ambiguous, as no stored location is preferred. A new
+// location is checked like SaveLocation, its fields named by their import
+// paths, and yielded without ID.
+func resolveImportLocation(slot importLocationSlot, location *LocationInput, storedLocations map[string][]Location) (Location, []FieldError) {
 	if location == nil {
-		return Location{}, []FieldError{{Field: EventFieldLocation, Problem: ProblemMissing}}
+		if !slot.required {
+			return Location{}, nil
+		}
+		return Location{}, []FieldError{{Field: slot.path, Problem: ProblemMissing}}
 	}
 	if normalizeText(location.Name) == "" {
-		return Location{}, []FieldError{{Field: importLocationField(LocationFieldName), Problem: ProblemMissing}}
+		return Location{}, []FieldError{{Field: importLocationField(slot.path, LocationFieldName), Problem: ProblemMissing}}
 	}
 	stored := storedLocations[NormalizeKey(location.Name)]
 	if len(stored) == 1 {
 		return stored[0], nil
 	}
 	if len(stored) > 1 {
-		return Location{}, []FieldError{{Field: importLocationField(LocationFieldName), Problem: ProblemAmbiguous}}
+		return Location{}, []FieldError{{Field: importLocationField(slot.path, LocationFieldName), Problem: ProblemAmbiguous}}
 	}
 	created, err := newLocation(*location)
 	var validation *ValidationError
@@ -442,20 +501,21 @@ func resolveImportLocation(location *LocationInput, storedLocations map[string][
 	}
 	problems := make([]FieldError, 0, len(validation.Fields))
 	for _, problem := range validation.Fields {
-		problem.Field = importLocationField(problem.Field)
+		problem.Field = importLocationField(slot.path, problem.Field)
 		problems = append(problems, problem)
 	}
 	return Location{}, problems
 }
 
-// importLocationField returns the import path of a location field:
-// address parts within location.address, the others within location.
-func importLocationField(field string) string {
+// importLocationField returns the import path of a field of the location
+// object at path: address parts within path.address, the others within
+// path, such as location.name or timetable[2].location.address.city.
+func importLocationField(path, field string) string {
 	switch field {
 	case LocationFieldStreet, LocationFieldPostalCode, LocationFieldCity:
-		return EventFieldLocation + fieldPathSeparator + LocationFieldAddress + fieldPathSeparator + field
+		return path + fieldPathSeparator + LocationFieldAddress + fieldPathSeparator + field
 	default:
-		return EventFieldLocation + fieldPathSeparator + field
+		return path + fieldPathSeparator + field
 	}
 }
 
