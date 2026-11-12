@@ -3,7 +3,7 @@ package v1
 import (
 	"context"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // server answers the operations of the spec from the core queries; it only

@@ -14,7 +14,7 @@ import (
 	"testing"
 	"testing/iotest"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // failingImports fails every preview with err.

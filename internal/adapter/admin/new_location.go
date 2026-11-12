@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // Routes of the inline input for a new location on the event form (FR-15).

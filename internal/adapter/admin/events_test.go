@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // Now lets the test clock serve as core.Clock for the event list.

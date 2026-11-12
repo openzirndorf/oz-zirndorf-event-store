@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 func serveArchive(t *testing.T, events EventLister, query string) *httptest.ResponseRecorder {

@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // LocationUseCases are the core use cases behind the location pages. The

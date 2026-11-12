@@ -15,7 +15,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/lock"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
 )
 
 // testDatabaseURLVariable names the environment variable that points the

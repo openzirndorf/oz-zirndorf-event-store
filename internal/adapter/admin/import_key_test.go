@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // German texts the import key tests expect, written out so a changed

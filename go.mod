@@ -1,4 +1,4 @@
-module github.com/phemantras/oz-zirndorf-event-store
+module github.com/openzirndorf/oz-zirndorf-event-store
 
 go 1.27.1
 

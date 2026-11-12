@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	apispec "github.com/phemantras/oz-zirndorf-event-store/api/v1"
+	apispec "github.com/openzirndorf/oz-zirndorf-event-store/api/v1"
 )
 
 const (

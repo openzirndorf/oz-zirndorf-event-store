@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // generatedFile is the scaffold oapi-codegen derives from api/v1/openapi.yaml;

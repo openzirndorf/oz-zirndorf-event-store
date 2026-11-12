@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // DailyInterval is the time between two runs after the one at startup.

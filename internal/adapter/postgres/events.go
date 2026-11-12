@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres/db"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres/db"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // noRowsAffected is what an UPDATE or DELETE reports when no row has the

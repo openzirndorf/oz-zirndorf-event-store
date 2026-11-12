@@ -19,11 +19,11 @@ import (
 	"time"
 	_ "time/tzdata" // Europe/Berlin must resolve even without system zone data.
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/admin"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/cleanup"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	publicapi "github.com/phemantras/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/admin"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/cleanup"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	publicapi "github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 const (

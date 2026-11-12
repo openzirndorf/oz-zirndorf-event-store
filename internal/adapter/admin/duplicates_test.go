@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // confirmationOf is what confirming the warning shown for form sends.

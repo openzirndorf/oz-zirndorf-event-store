@@ -3,7 +3,7 @@ package admin
 import (
 	"fmt"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // German texts shared by the forms and pages.

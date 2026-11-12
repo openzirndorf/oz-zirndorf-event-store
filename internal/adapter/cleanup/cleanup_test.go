@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/cleanup"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/cleanup"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // shortInterval lets RunDaily tick several times within a test.

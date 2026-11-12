@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // memoryLocationRepo is an in-memory core.LocationRepo, so the admin tests

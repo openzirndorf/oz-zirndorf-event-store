@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // listFailingLocations saves through the real core but cannot list, so the

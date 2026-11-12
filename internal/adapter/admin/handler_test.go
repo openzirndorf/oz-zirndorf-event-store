@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 const (
