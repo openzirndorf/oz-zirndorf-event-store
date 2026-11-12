@@ -125,3 +125,9 @@
   evidence: `withEntryLocationIDs` (`internal/core/import_classify.go`) übernimmt gespeicherte Orte nur vom Ziel per `importKey`, wie die Entscheidung B in 5.3 festlegt („ohne Ziel gilt der Ort des Events“). Beim Überschreiben eines Kandidaten ohne Schlüssel ersetzt der Commit den ganzen Ablaufplan; Duplikatverdachte zeigen keine Änderungsanzeige, das gilt für alle Felder schon seit 3.3. Gefunden von drei Review-Ebenen am 2026-11-12.
   status: open
   target: Retro Epic 5 (Entscheidung, ob Überschreiben wie ein Update per `importKey` die Orte der Programmpunkte übernehmen soll)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-e1-neuer-ort-beim-programmpunkt.md`
+  summary: Das htmx-Verhalten von „Neuer Ort“ am Programmpunkt (Formular per OOB anhängen und löschen, Option per Selektor in alle Ortsauswahlen) hat keinen Browsertest.
+  evidence: Die Admin-Tests prüfen nur Markup-Strings; das Repo hat kein JS-/Browser-Test-Setup (siehe Eintrag „Browser-Tests“).
+  status: open
+  target: Backlog (nächste Retro ordnet zu)

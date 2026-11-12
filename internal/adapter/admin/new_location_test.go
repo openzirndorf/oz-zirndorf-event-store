@@ -2,11 +2,13 @@ package admin
 
 import (
 	"context"
+	"crypto/rand"
 	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -359,4 +361,310 @@ func TestSavingNewLocationOverTheLimitShowsItInline(t *testing.T) {
 
 	assertStatusCode(t, rec, http.StatusUnprocessableEntity)
 	assertBodyContains(t, rec, "Höchstens 200 Zeichen.", form.Get(core.LocationFieldStreet), form.Get(core.LocationFieldNote))
+}
+
+// entryKeyPattern matches the key of a timetable entry in its element ids.
+var entryKeyPattern = regexp.MustCompile(`id="entry-([A-Z2-7]{26})-location-choice"`)
+
+// entryKeysIn returns the keys of the timetable entries in markup, in order.
+func entryKeysIn(markup string) []string {
+	var keys []string
+	for _, match := range entryKeyPattern.FindAllStringSubmatch(markup, -1) {
+		keys = append(keys, match[1])
+	}
+	return keys
+}
+
+// entryKeyOfNewEntry renders an added timetable entry and returns its key.
+func (ts *testServer) entryKeyOfNewEntry(t *testing.T) string {
+	t.Helper()
+	keys := entryKeysIn(ts.htmxGet(timetableEntryPath).Body.String())
+	if len(keys) != 1 {
+		t.Fatalf("entry keys = %q, want one", keys)
+	}
+	return keys[0]
+}
+
+// entryIDs are the element ids of the location choice and the inline input
+// of one timetable entry.
+type entryIDs struct {
+	area, form, choice, selectID string
+}
+
+func entryIDsOf(key string) entryIDs {
+	entry := "entry-" + key
+	return entryIDs{
+		area:     entry + "-new-location",
+		form:     entry + "-new-location-form",
+		choice:   entry + "-location-choice",
+		selectID: entry + "-locationId",
+	}
+}
+
+func entryQuery(key string) string {
+	return "?entry=" + key
+}
+
+// assertAllFieldsBelongTo checks that every field of a fragment is tied to
+// the form with formID, so neither the event form nor another input sends it.
+func assertAllFieldsBelongTo(t *testing.T, rec *httptest.ResponseRecorder, formID string) {
+	t.Helper()
+	tags := fieldTags.FindAllString(rec.Body.String(), -1)
+	if len(tags) != len(hallForm()) {
+		t.Errorf("fragment has %d fields, want %d", len(tags), len(hallForm()))
+	}
+	for _, tag := range tags {
+		if !strings.Contains(tag, `form="`+formID+`"`) {
+			t.Errorf("field %s is not tied to %s", tag, formID)
+		}
+	}
+}
+
+func TestEveryKeyFromRandTextIsAnEntryKey(t *testing.T) {
+	for range 100 {
+		if key := rand.Text(); !isEntryKey(key) {
+			t.Fatalf("isEntryKey(%q) = false, want true", key)
+		}
+	}
+}
+
+func TestEventFormHasContainerForEntryLocationFormsAfterEventForm(t *testing.T) {
+	ts := newTestServer(t)
+
+	body := ts.get(newEventPath).Body.String()
+
+	eventFormEnd := strings.Index(body, "</form>")
+	if position := strings.Index(body, `<div id="entry-location-forms"></div>`); position < 0 || position < eventFormEnd {
+		t.Errorf("container at %d, event form ends at %d, want an empty container after it", position, eventFormEnd)
+	}
+}
+
+func TestEventLocationChoiceTakesNewLocations(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := ts.get(newEventPath)
+
+	assertBodyContains(t, rec, `<select id="`+core.EventFieldLocationID+`" name="`+core.EventFieldLocationID+`" required data-location-options>`)
+}
+
+func TestOpeningNewLocationAtEntryShowsFieldsOfThatEntryAndAppendsItsForm(t *testing.T) {
+	ts := newTestServer(t)
+	key := ts.entryKeyOfNewEntry(t)
+	ids := entryIDsOf(key)
+
+	rec := ts.htmxGet(inlineLocationPath + entryQuery(key))
+
+	assertStatusCode(t, rec, http.StatusOK)
+	assertFragment(t, rec)
+	assertAllFieldsBelongTo(t, rec, ids.form)
+	assertBodyContains(t, rec,
+		`<div id="`+ids.area+`">`,
+		`<label for="`+ids.area+`-name">Name</label>`,
+		`<div id="`+ids.area+`-location-map" class="location-map" data-location-map`+
+			` data-latitude-field="`+ids.area+`-latitude" data-longitude-field="`+ids.area+`-longitude"`,
+		`<button type="submit" form="`+ids.form+`">Ort speichern</button>`,
+		`<button type="button" hx-get="`+inlineLocationCancelPath+entryQuery(key)+`" hx-target="#`+ids.area+`" hx-swap="outerHTML">Abbrechen</button>`,
+		`<div hx-swap-oob="beforeend:#entry-location-forms"><form id="`+ids.form+`" hx-post="`+inlineLocationPath+entryQuery(key)+
+			`" hx-target="#`+ids.area+`" hx-swap="outerHTML" hx-sync="this:drop" novalidate></form></div>`,
+	)
+	assertBodyLacks(t, rec, `id="`+newLocationAreaID+`"`, inlineFormAttribute, `id="new-location-name"`)
+}
+
+func TestOpeningNewLocationAtEventAppendsNoForm(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := ts.htmxGet(inlineLocationPath)
+
+	assertBodyLacks(t, rec, "hx-swap-oob", "<form")
+}
+
+func TestCancellingNewLocationAtEntryClosesItAndRemovesItsForm(t *testing.T) {
+	ts := newTestServer(t)
+	key := ts.entryKeyOfNewEntry(t)
+	ids := entryIDsOf(key)
+
+	rec := ts.htmxGet(inlineLocationCancelPath + entryQuery(key))
+
+	assertStatusCode(t, rec, http.StatusOK)
+	assertFragment(t, rec)
+	assertBodyContains(t, rec,
+		`<div id="`+ids.area+`">`,
+		`<a href="`+newLocationPath+`" hx-get="`+inlineLocationPath+entryQuery(key)+`" hx-target="#`+ids.area+`" hx-swap="outerHTML">Neuer Ort</a>`,
+		`<div id="`+ids.form+`" hx-swap-oob="delete"></div>`,
+	)
+	assertBodyLacks(t, rec, `form="`, `role="status"`)
+	if len(ts.locations.locations) != 0 {
+		t.Error("cancelling stored a location")
+	}
+}
+
+func TestSavingValidNewLocationAtEntrySelectsItThereAndOffersItEverywhereElse(t *testing.T) {
+	ts := newTestServer(t)
+	park := ts.seed(t, "Bibertpark")
+	key := ts.entryKeyOfNewEntry(t)
+	ids := entryIDsOf(key)
+
+	rec := ts.htmxPost(inlineLocationPath+entryQuery(key), hallForm())
+
+	assertStatusCode(t, rec, http.StatusOK)
+	assertFragment(t, rec)
+	hall, err := ts.locations.FindByNameKey(context.Background(), core.NormalizeKey(hallName))
+	if err != nil {
+		t.Fatalf("location not stored: %v", err)
+	}
+	assertBodyContains(t, rec,
+		`<div id="`+ids.area+`">`,
+		`<p class="hint" role="status">Ort „Paul-Metz-Halle“ angelegt und ausgewählt.</p>`,
+		`hx-get="`+inlineLocationPath+entryQuery(key)+`"`,
+		`<div id="`+ids.choice+`" hx-swap-oob="true">`,
+		`<select id="`+ids.selectID+`" name="`+timetableFormLocationID+`" data-location-options>`,
+		`<option value="">Ort des Events</option>`,
+		`<option value="`+hall.ID+`" selected>`+hallName+`</option>`,
+		`<option value="`+park.ID+`">Bibertpark</option>`,
+		`<div hx-swap-oob="beforeend:select[data-location-options]:not(#`+ids.selectID+`)"><option value="`+hall.ID+`">`+hallName+`</option></div>`,
+		`<div id="`+ids.form+`" hx-swap-oob="delete"></div>`,
+	)
+	assertBodyLacks(t, rec, `id="`+locationChoiceID+`"`, `id="`+newLocationAreaID+`"`, `form="`)
+	body := html.UnescapeString(rec.Body.String())
+	if area, choice := strings.Index(body, `id="`+ids.area+`"`), strings.Index(body, `id="`+ids.choice+`"`); area < 0 || area > choice {
+		t.Errorf("positions = %d, %d, want the area first and the choice out of band", area, choice)
+	}
+}
+
+func TestSavingValidNewLocationAtEventOffersItToTheOtherChoices(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := ts.htmxPost(inlineLocationPath, hallForm())
+
+	assertStatusCode(t, rec, http.StatusOK)
+	hall, err := ts.locations.FindByNameKey(context.Background(), core.NormalizeKey(hallName))
+	if err != nil {
+		t.Fatalf("location not stored: %v", err)
+	}
+	assertBodyContains(t, rec,
+		`<div hx-swap-oob="beforeend:select[data-location-options]:not(#`+core.EventFieldLocationID+`)"><option value="`+hall.ID+`">`+hallName+`</option></div>`,
+	)
+	assertBodyLacks(t, rec, `hx-swap-oob="delete"`)
+}
+
+func TestSavingInvalidNewLocationAtEntryShowsMessagesInThatEntry(t *testing.T) {
+	ts := newTestServer(t)
+	key := ts.entryKeyOfNewEntry(t)
+	ids := entryIDsOf(key)
+	form := hallForm()
+	form.Set(core.LocationFieldPostalCode, "9051")
+
+	rec := ts.htmxPost(inlineLocationPath+entryQuery(key), form)
+
+	assertStatusCode(t, rec, http.StatusUnprocessableEntity)
+	assertFragment(t, rec)
+	assertAllFieldsBelongTo(t, rec, ids.form)
+	assertBodyContains(t, rec, `<div id="`+ids.area+`">`, msgPostalCodeFormat, `value="9051"`, `id="`+ids.area+`-postalCode"`)
+	// The form of the entry is already on the page and stays there.
+	assertBodyLacks(t, rec, "hx-swap-oob", "<form")
+	if len(ts.locations.locations) != 0 {
+		t.Error("an invalid location was stored")
+	}
+}
+
+func TestSavingNewLocationAtEntryWithExistingNameShowsConflictLinkInThatEntry(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	key := ts.entryKeyOfNewEntry(t)
+	ids := entryIDsOf(key)
+
+	rec := ts.htmxPost(inlineLocationPath+entryQuery(key), hallForm())
+
+	assertStatusCode(t, rec, http.StatusConflict)
+	assertAllFieldsBelongTo(t, rec, ids.form)
+	assertBodyContains(t, rec,
+		`<div id="`+ids.area+`">`,
+		`<p class="error" role="alert">`+msgNameConflict+` <a href="`+locationPath(hall.ID)+`" target="_blank" rel="noopener">`+hallName+`</a></p>`,
+	)
+	assertBodyLacks(t, rec, "hx-swap-oob")
+}
+
+func TestNewLocationRequestsWithManipulatedEntryKeyAreBadRequests(t *testing.T) {
+	valid := strings.Repeat("A", 26)
+	queries := map[string]string{
+		"empty":         "?entry=",
+		"lower case":    "?entry=" + strings.ToLower(valid),
+		"too short":     "?entry=" + valid[1:],
+		"too long":      "?entry=" + valid + "A",
+		"outside":       "?entry=" + valid[1:] + "1",
+		"markup":        "?entry=" + url.QueryEscape(`"><b>`+valid[5:]),
+		"twice":         "?entry=" + valid + "&entry=" + valid,
+		"invalid query": "?entry=%zz",
+	}
+	for name, query := range queries {
+		t.Run(name, func(t *testing.T) {
+			ts := newTestServer(t)
+			responses := []*httptest.ResponseRecorder{
+				ts.htmxGet(inlineLocationPath + query),
+				ts.htmxGet(inlineLocationCancelPath + query),
+				ts.htmxPost(inlineLocationPath+query, hallForm()),
+			}
+			for _, rec := range responses {
+				assertStatusCode(t, rec, http.StatusBadRequest)
+			}
+			if len(ts.locations.locations) != 0 {
+				t.Error("a location was stored for a manipulated entry key")
+			}
+		})
+	}
+}
+
+func TestSavingNewLocationAtEntryAnswersFailuresWithServerErrorAndLog(t *testing.T) {
+	tests := map[string]func(*testServer) LocationUseCases{
+		"save fails": func(*testServer) LocationUseCases { return failingLocations{err: errStorageDown} },
+		"list fails after save": func(ts *testServer) LocationUseCases {
+			return listFailingLocations{LocationUseCases: ts.handler.locations, err: errStorageDown}
+		},
+	}
+	for name, locations := range tests {
+		t.Run(name, func(t *testing.T) {
+			ts := newTestServer(t)
+			key := ts.entryKeyOfNewEntry(t)
+			ts.handler.locations = locations(ts)
+
+			rec := ts.htmxPost(inlineLocationPath+entryQuery(key), hallForm())
+
+			assertFailurePage(t, rec, http.StatusInternalServerError, locationFailurePage(msgRequestFailed))
+			assertBodyLacks(t, rec, `id="`+entryIDsOf(key).choice+`"`, `id="`+entryIDsOf(key).area+`"`)
+			if !strings.Contains(ts.logs.String(), logMsgLocationsFailed) {
+				t.Errorf("log %q does not record the failure", ts.logs.String())
+			}
+		})
+	}
+}
+
+func TestTwoOpenInputsUseTheirOwnForms(t *testing.T) {
+	ts := newTestServer(t)
+	key := ts.entryKeyOfNewEntry(t)
+
+	atEvent := ts.htmxGet(inlineLocationPath)
+	atEntry := ts.htmxGet(inlineLocationPath + entryQuery(key))
+
+	assertAllFieldsBelongToInlineForm(t, atEvent)
+	assertAllFieldsBelongTo(t, atEntry, entryIDsOf(key).form)
+}
+
+func TestSavingEventWithExtraLocationFieldsAtEntriesCreatesNoLocation(t *testing.T) {
+	ts := newTestServer(t)
+	park := ts.seed(t, "Bibertpark")
+	form := festForm(park.ID, bieranstich, disco)
+	for field, values := range hallForm() {
+		if form.Get(field) == "" {
+			form[field] = values
+		}
+	}
+
+	event := ts.seedEvent(t, form)
+
+	if got := storedDescriptions(event); !slices.Equal(got, []string{"Bieranstich", "Disco"}) {
+		t.Errorf("timetable = %q, want both entries", got)
+	}
+	if len(ts.locations.locations) != 1 {
+		t.Errorf("stored %d locations, want 1", len(ts.locations.locations))
+	}
 }

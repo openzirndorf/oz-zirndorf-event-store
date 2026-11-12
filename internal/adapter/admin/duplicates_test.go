@@ -223,7 +223,9 @@ func TestDuplicateWarningKeepsTheOwnLocationOfAnEntrySelected(t *testing.T) {
 	rec := ts.post(eventsPath, withEntryLocations(festForm(hall.ID, bieranstich), church.ID))
 
 	assertStatusCode(t, rec, http.StatusConflict)
-	if got := selectedOptionsIn(timetableEntriesOf(rec)[0]); !slices.Equal(got, []string{churchName}) {
+	entries := timetableEntriesOf(rec)
+	if got := selectedOptionsIn(entries[0]); !slices.Equal(got, []string{churchName}) {
 		t.Errorf("entry selects %q, want %q kept", got, churchName)
 	}
+	assertEntriesHaveClosedNewLocation(t, entries)
 }

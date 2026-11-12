@@ -53,10 +53,11 @@ var (
 	eventsTemplate       = parsePage(eventsFile)
 	eventFormTemplate    = parsePage(eventFormFile, locationFieldsFile, newLocationFile, timetableEntryFile, deleteFormFile)
 	// newLocationTemplate holds the fragments that htmx swaps into the
-	// event form.
-	newLocationTemplate = parseFragments(newLocationFile, locationFieldsFile)
-	// timetableEntryTemplate is the empty entry htmx appends.
-	timetableEntryTemplate = parseFragments(timetableEntryFile)
+	// event form, with the location choice of a timetable entry.
+	newLocationTemplate = parseFragments(newLocationFile, locationFieldsFile, timetableEntryFile)
+	// timetableEntryTemplate is the empty entry htmx appends, with its
+	// closed input for a new location.
+	timetableEntryTemplate = parseFragments(timetableEntryFile, newLocationFile, locationFieldsFile)
 	importTemplate         = parsePage(importFile)
 )
 
