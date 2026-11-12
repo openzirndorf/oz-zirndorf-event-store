@@ -357,6 +357,7 @@ func (h *handler) renderEventForm(w http.ResponseWriter, r *http.Request, status
 		Values:           form.values,
 		Errors:           form.errors,
 		LocationChoice:   locationChoiceOf(locations, form.values.LocationID, form.errors[core.EventFieldLocationID]),
+		NewLocation:      inlineLocationTarget{}.closedArea(),
 		AllDayValue:      allDayChecked,
 		PrivacyHint:      msgNoPersonalData,
 		UnknownTimeHint:  msgUnknownTime,

@@ -16,14 +16,18 @@
         <input name="timetable.endTime" type="time" value="{{.Values.EndTime}}">
       </label>
       {{with index .Errors "endTime"}}<p class="field-error">{{.}}</p>{{end}}
-      <label>Ort
-        <select name="timetable.locationId">
+      {{template "entryLocationChoice" .Choice}}
+      {{template "newLocationClosed" .NewLocation}}
+      <p class="hint">{{.UnknownTimeHint}} {{.EndsNextDayHint}}</p>
+      <button type="button" hx-on:click="this.closest('fieldset').remove()">Programmpunkt entfernen</button>
+    </fieldset>{{end}}
+
+{{define "entryLocationChoice"}}<div id="{{.ID}}"{{if .OutOfBand}} hx-swap-oob="true"{{end}}>
+        <label for="{{.SelectID}}">Ort</label>
+        <select id="{{.SelectID}}" name="timetable.locationId" data-location-options>
           <option value="">Ort des Events</option>
           {{range .Locations}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
           {{end}}
         </select>
-      </label>
-      {{with index .Errors "locationId"}}<p class="field-error">{{.}}</p>{{end}}
-      <p class="hint">{{.UnknownTimeHint}} {{.EndsNextDayHint}}</p>
-      <button type="button" hx-on:click="this.closest('fieldset').remove()">Programmpunkt entfernen</button>
-    </fieldset>{{end}}
+        {{with .Error}}<p class="field-error">{{.}}</p>{{end}}
+      </div>{{end}}

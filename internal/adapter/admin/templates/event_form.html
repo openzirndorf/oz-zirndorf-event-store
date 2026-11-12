@@ -89,4 +89,5 @@
 </div>{{end}}
 {{template "deleteForm" .Delete}}
 <form id="new-location-form" hx-post="/admin/events/new-location" hx-target="#new-location" hx-swap="outerHTML" hx-sync="this:drop" novalidate></form>
+<div id="entry-location-forms"></div>
 {{end}}

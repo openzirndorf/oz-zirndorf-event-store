@@ -1,21 +1,23 @@
-{{define "newLocationClosed"}}<div id="new-location">
+{{define "newLocationClosed"}}<div id="{{.ID}}">
   {{with .Notice}}<p class="hint" role="status">{{.}}</p>{{end}}
-  <p><a href="/admin/locations/new" hx-get="/admin/events/new-location" hx-target="#new-location" hx-swap="outerHTML">Neuer Ort</a></p>
-</div>{{end}}
+  <p><a href="/admin/locations/new" hx-get="{{.OpenURL}}" hx-target="#{{.ID}}" hx-swap="outerHTML">Neuer Ort</a></p>
+</div>{{with .RemovedFormID}}
+<div id="{{.}}" hx-swap-oob="delete"></div>{{end}}{{end}}
 
-{{define "newLocationOpen"}}<div id="new-location">
+{{define "newLocationOpen"}}<div id="{{.ID}}">
   <fieldset class="new-location">
     <legend>Neuer Ort</legend>
     {{with .Conflict}}<p class="error" role="alert">{{.Message}} <a href="{{.URL}}" target="_blank" rel="noopener">{{.Name}}</a></p>{{end}}
 {{template "locationFields" .Fields}}
-    <button type="submit" form="new-location-form">Ort speichern</button>
-    <button type="button" hx-get="/admin/events/new-location/cancel" hx-target="#new-location" hx-swap="outerHTML">Abbrechen</button>
+    <button type="submit" form="{{.Fields.FormID}}">Ort speichern</button>
+    <button type="button" hx-get="{{.CancelURL}}" hx-target="#{{.ID}}" hx-swap="outerHTML">Abbrechen</button>
   </fieldset>
-</div>{{end}}
+</div>{{with .LocationForm}}
+<div hx-swap-oob="beforeend:#{{.ContainerID}}"><form id="{{.ID}}" hx-post="{{.Action}}" hx-target="#{{.Target}}" hx-swap="outerHTML" hx-sync="this:drop" novalidate></form></div>{{end}}{{end}}
 
 {{define "locationChoice"}}<div id="location-choice"{{if .OutOfBand}} hx-swap-oob="true"{{end}}>
   <label for="locationId">Ort</label>
-  <select id="locationId" name="locationId" required>
+  <select id="locationId" name="locationId" required data-location-options>
     <option value="">Bitte auswählen</option>
     {{range .Locations}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
     {{end}}
@@ -25,4 +27,5 @@
 </div>{{end}}
 
 {{define "newLocationSaved"}}{{template "newLocationClosed" .Area}}
-{{template "locationChoice" .Choice}}{{end}}
+{{with .Choice}}{{template "locationChoice" .}}{{end}}{{with .EntryChoice}}{{template "entryLocationChoice" .}}{{end}}
+{{with .NewOption}}<div hx-swap-oob="beforeend:select[data-location-options]:not(#{{.ExcludedSelectID}})"><option value="{{.Option.Value}}">{{.Option.Label}}</option></div>{{end}}{{end}}

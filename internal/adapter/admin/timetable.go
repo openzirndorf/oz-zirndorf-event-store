@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/rand"
 	"errors"
 	"net/http"
 	"net/url"
@@ -58,15 +59,29 @@ var timetableFieldMessages = map[core.FieldError]string{
 }
 
 // timetableEntryView is the data of one entry on the event form: the
-// values as entered, the locations to choose from with the own location of
-// the entry selected, and the messages per field within the entry.
+// values as entered, the location choice with the own location of the
+// entry selected, the closed input for a new location and the messages per
+// field within the entry.
 type timetableEntryView struct {
-	Values    core.TimetableEntryInput
-	Locations []selectOption
-	Errors    map[string]string
+	Values      core.TimetableEntryInput
+	Choice      entryLocationChoice
+	NewLocation newLocationArea
+	Errors      map[string]string
 	// UnknownTimeHint and EndsNextDayHint are shown at the time fields.
 	UnknownTimeHint string
 	EndsNextDayHint string
+}
+
+// entryLocationChoice is the location select of a timetable entry. The
+// inline input for a new location of the entry replaces it out of band.
+type entryLocationChoice struct {
+	ID        string
+	SelectID  string
+	Locations []selectOption
+	// Error is the message for the location field of the entry.
+	Error string
+	// OutOfBand marks the choice for an htmx out-of-band swap.
+	OutOfBand bool
 }
 
 // showTimetableEntry answers with an empty entry whose location choice
@@ -81,14 +96,33 @@ func (h *handler) showTimetableEntry(w http.ResponseWriter, r *http.Request) {
 	h.renderFragment(w, timetableEntryTemplate, timetableEntryFragment, http.StatusOK, view)
 }
 
+// newTimetableEntryView returns the entry under a new key, which tells its
+// elements apart from those of the other entries.
 func newTimetableEntryView(values core.TimetableEntryInput, locations []core.Location, messages map[string]string) timetableEntryView {
+	key := rand.Text()
 	return timetableEntryView{
 		Values:          values,
-		Locations:       entryLocationOptions(locations, values.LocationID),
+		Choice:          entryLocationChoiceOf(key, locations, values.LocationID, messages[core.TimetableFieldLocationID]),
+		NewLocation:     inlineLocationTarget{entryKey: key}.closedArea(),
 		Errors:          messages,
 		UnknownTimeHint: msgUnknownTime,
 		EndsNextDayHint: msgEntryEndsNextDay,
 	}
+}
+
+// entryLocationChoiceOf returns the location select of the entry with key,
+// with selectedID selected and errorMessage at the field.
+func entryLocationChoiceOf(key string, locations []core.Location, selectedID, errorMessage string) entryLocationChoice {
+	return entryLocationChoice{
+		ID:        entryIDPrefix + key + entryLocationChoiceSuffix,
+		SelectID:  entryLocationSelectID(key),
+		Locations: entryLocationOptions(locations, selectedID),
+		Error:     errorMessage,
+	}
+}
+
+func entryLocationSelectID(key string) string {
+	return entryIDPrefix + key + entryLocationSelectSuffix
 }
 
 // entryLocationOptions returns one option per location with selectedID

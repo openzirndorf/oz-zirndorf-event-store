@@ -80,7 +80,7 @@ func TestTimetableEntryFragmentIsAnEmptyEntryWithRemoveButton(t *testing.T) {
 		`<label>Datum`, `name="`+timetableFormDate+`" type="date" value=""`,
 		`<label>Beginn-Uhrzeit (optional)`, `name="`+timetableFormStartTime+`" type="time" value=""`,
 		`<label>End-Uhrzeit (optional)`, `name="`+timetableFormEndTime+`" type="time" value=""`,
-		`<label>Ort`, `<select name="`+timetableFormLocationID+`">`, `<option value="">Ort des Events</option>`,
+		`<option value="">Ort des Events</option>`,
 		`hx-on:click="this.closest('fieldset').remove()"`, "Programmpunkt entfernen",
 	)
 	body := html.UnescapeString(rec.Body.String())
@@ -89,7 +89,45 @@ func TestTimetableEntryFragmentIsAnEmptyEntryWithRemoveButton(t *testing.T) {
 			t.Errorf("fragment lacks hint %q", hint)
 		}
 	}
-	assertBodyLacks(t, rec, `id="`)
+	assertBodyLacks(t, rec, `form="`)
+}
+
+func TestTimetableEntryHasKeyedLocationChoiceAndClosedNewLocation(t *testing.T) {
+	ts := newTestServer(t)
+
+	rec := ts.htmxGet(timetableEntryPath)
+
+	keys := entryKeysIn(rec.Body.String())
+	if len(keys) != 1 {
+		t.Fatalf("entry keys = %q, want one", keys)
+	}
+	ids := entryIDsOf(keys[0])
+	assertBodyContains(t, rec,
+		`<div id="`+ids.choice+`">`,
+		`<label for="`+ids.selectID+`">Ort</label>`,
+		`<select id="`+ids.selectID+`" name="`+timetableFormLocationID+`" data-location-options>`,
+		`<div id="`+ids.area+`">`,
+		`<a href="`+newLocationPath+`" hx-get="`+inlineLocationPath+entryQuery(keys[0])+`" hx-target="#`+ids.area+`" hx-swap="outerHTML">Neuer Ort</a>`,
+	)
+	assertBodyLacks(t, rec, "hx-swap-oob", `role="status"`)
+}
+
+func TestEveryRenderedEntryHasItsOwnKey(t *testing.T) {
+	ts := newTestServer(t)
+	hall := ts.seed(t, hallName)
+	event := ts.seedEvent(t, festForm(hall.ID, bieranstich, disco))
+
+	body := ts.get(eventPath(event.ID)).Body.String()
+
+	keys := entryKeysIn(body)
+	if len(keys) != 2 || keys[0] == keys[1] {
+		t.Fatalf("entry keys = %q, want two different ones", keys)
+	}
+	for _, key := range keys {
+		if !strings.Contains(body, `hx-get="`+inlineLocationPath+entryQuery(key)+`"`) {
+			t.Errorf("entry %s offers no new location", key)
+		}
+	}
 }
 
 func TestTimetableEntryFragmentRequiresSession(t *testing.T) {
@@ -388,6 +426,20 @@ func fieldErrorsIn(markup string) []string {
 
 const churchName = "Stadtkirche"
 
+// assertEntriesHaveClosedNewLocation checks that every entry offers a new
+// location under its key and holds no field of an open input.
+func assertEntriesHaveClosedNewLocation(t *testing.T, entries []string) {
+	t.Helper()
+	for i, entry := range entries {
+		if !strings.Contains(entry, `hx-get="`+inlineLocationPath+`?entry=`) {
+			t.Errorf("entry %d lacks the closed input for a new location", i)
+		}
+		if strings.Contains(entry, `form="`) {
+			t.Errorf("entry %d holds a field of an open input for a new location", i)
+		}
+	}
+}
+
 // withEntryLocations sets the own location of each entry of form, in order;
 // an empty ID is the location of the event.
 func withEntryLocations(form url.Values, locationIDs ...string) url.Values {
@@ -498,6 +550,7 @@ func TestUnknownEntryLocationShowsAMessageAtTheEntryAndKeepsTheOtherInput(t *tes
 	if got := selectedOptionsIn(entries[1]); !slices.Equal(got, []string{churchName}) {
 		t.Errorf("entry 1 selects %q, want %q kept", got, churchName)
 	}
+	assertEntriesHaveClosedNewLocation(t, entries)
 	assertBodyContains(t, rec, msgTimetableProblems)
 	if len(ts.events.events) != 0 {
 		t.Error("an event with an unknown entry location was stored")
