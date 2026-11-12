@@ -3,7 +3,7 @@ package admin
 import (
 	"net/url"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // duplicatesField is sent by the button that confirms the duplicate

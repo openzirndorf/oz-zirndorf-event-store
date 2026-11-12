@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // uniqueViolation is the SQLSTATE of a row that breaks a unique index.

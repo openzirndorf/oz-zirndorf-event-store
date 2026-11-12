@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // timetableEntryPath answers with one empty timetable entry, which htmx

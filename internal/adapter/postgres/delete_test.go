@@ -8,8 +8,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // archivedEvent starts long before any test runs, so it is archived.

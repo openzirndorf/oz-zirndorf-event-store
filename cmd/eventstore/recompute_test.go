@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // fakeRecomputer returns fixed recompute results and records the order in

@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/cleanup"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	publicapi "github.com/phemantras/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/cleanup"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	publicapi "github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // fixedClock is a core.Clock that always shows the same instant.

@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	modulePath = "github.com/phemantras/oz-zirndorf-event-store"
+	modulePath = "github.com/openzirndorf/oz-zirndorf-event-store"
 	repoRoot   = "../.."
 	// violationsFixture is a miniature repository whose files break AD-1 on
 	// purpose, proving that the checker detects violations.

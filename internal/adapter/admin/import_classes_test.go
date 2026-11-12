@@ -5,7 +5,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // marketImportKey is the import key the classification test gives the

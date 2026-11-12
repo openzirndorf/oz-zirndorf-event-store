@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // adminImportCommitPath commits a checked import file.

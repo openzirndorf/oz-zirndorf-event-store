@@ -9,8 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres/db"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres/db"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // SQLSTATEs that translateError reports as core.ErrConflict.

@@ -13,9 +13,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
-	publicapi "github.com/phemantras/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
+	publicapi "github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/publicapi/v1"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 func TestRequestTimeoutEndsRequestsBeforeTheWriteTimeout(t *testing.T) {

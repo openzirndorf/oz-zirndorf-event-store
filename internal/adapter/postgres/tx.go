@@ -7,8 +7,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres/db"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres/db"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // writeLockID is the key of the advisory lock every transaction of

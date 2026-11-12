@@ -15,8 +15,8 @@ import (
 	"strings"
 	"testing"
 
-	apispec "github.com/phemantras/oz-zirndorf-event-store/api/v1"
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	apispec "github.com/openzirndorf/oz-zirndorf-event-store/api/v1"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 // coreSourceGlob finds the source files of the core, whose field name

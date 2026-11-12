@@ -10,7 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/adapter/postgres"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/adapter/postgres"
 )
 
 // timetableLocationNameKey is the name key of the location the timetable

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/phemantras/oz-zirndorf-event-store/internal/core"
+	"github.com/openzirndorf/oz-zirndorf-event-store/internal/core"
 )
 
 func (f failingImports) CommitImport(context.Context, []byte, []core.ImportDecision) (core.ImportSummary, error) {

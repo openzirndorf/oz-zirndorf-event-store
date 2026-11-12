@@ -13,7 +13,7 @@ import (
 	"strings"
 	"testing"
 
-	apispec "github.com/phemantras/oz-zirndorf-event-store/api/v1"
+	apispec "github.com/openzirndorf/oz-zirndorf-event-store/api/v1"
 )
 
 // invalidGzipLevel is no level compress/gzip accepts.
